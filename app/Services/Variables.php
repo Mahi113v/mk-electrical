@@ -1,0 +1,12 @@
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=<pudhusa generate pannadhu>
+APP_URL=https://<railway-domain>
+DB_CONNECTION=mysql
+DB_HOST=${{MySQL.MYSQLHOST}}
+DB_PORT=${{MySQL.MYSQLPORT}}
+DB_DATABASE=${{MySQL.MYSQLDATABASE}}
+DB_USERNAME=${{MySQL.MYSQLUSER}}
+DB_PASSWORD=${{MySQL.MYSQLPASSWORD}}
+SEED_ADMIN_PASSWORD=<pudhu strong password>
+SEED_USER_PASSWORD=<pudhu strong password>
