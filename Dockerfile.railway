@@ -30,8 +30,10 @@ COPY docker/railway/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/railway/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/railway/start.sh /start.sh
 
+RUN sed -i 's/\r$//' /start.sh
+
 RUN chmod +x /start.sh \
-    && mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache \
+    && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 8080
