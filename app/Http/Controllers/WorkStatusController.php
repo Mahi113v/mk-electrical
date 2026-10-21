@@ -19,18 +19,17 @@ class WorkStatusController extends Controller
         ];
     }
 
-    private function canManage(Request $request, WorkStatus $work): bool
-    {
-        return $request->user()->is_admin || $work->user_id === $request->user()->id;
-    }
-
     public function index(Request $request): JsonResponse
     {
+        [$from, $to] = $this->range($request);
+
         try {
-            $works = WorkStatus::with(['user:id,name', 'workLists'])
+            $works = WorkStatus::forTenant()->with(['user:id,name', 'workLists'])
                 ->when($request->filled('month') && $request->filled('year'), function ($q) use ($request) {
                     $q->whereMonth('work_date', $request->month)->whereYear('work_date', $request->year);
                 })
+                ->when($from, fn ($q) => $q->whereDate('work_date', '>=', $from))
+                ->when($to, fn ($q) => $q->whereDate('work_date', '<=', $to))
                 ->orderByDesc('work_date')->orderByDesc('id')->get();
 
             return $this->ok($works, 'WorkStatus fetched successfully');
@@ -39,61 +38,44 @@ class WorkStatusController extends Controller
         }
     }
 
-    // route parameter is {work}; the old code type-hinted $order so binding never matched
-    public function show(WorkStatus $work): JsonResponse
+    public function show(int $id): JsonResponse
     {
-        return $this->ok($work->load(['user:id,name', 'workLists']));
+        return $this->ok(WorkStatus::forTenant()->with(['user:id,name', 'workLists'])->findOrFail($id));
     }
 
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate($this->rules());
+        $date = $this->dateInYear($data['work_date'] ?? null, 'work_date');
 
-        try {
-            $work = DB::transaction(function () use ($data, $request) {
-                $work = WorkStatus::create([
-                    'user_id'   => $request->user()->id,
-                    'work_date' => $data['work_date'] ?? now()->toDateString(),
-                ]);
-                $work->workLists()->createMany($data['items']);
+        $work = DB::transaction(function () use ($data, $date, $request) {
+            $work = WorkStatus::create(['user_id' => $request->user()->id, 'work_date' => $date]);
+            $work->workLists()->createMany($data['items']);
 
-                return $work;
-            });
+            return $work;
+        });
 
-            return $this->ok($work->load('workLists'), 'Work status created successfully', 201);
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while creating work status');
-        }
+        return $this->ok($work->load('workLists'), 'Work status created successfully', 201);
     }
 
-    public function update(Request $request, WorkStatus $work): JsonResponse
+    public function update(Request $request, int $id): JsonResponse
     {
-        if (!$this->canManage($request, $work)) {
-            return $this->fail('You can only edit your own work status.', 403);
-        }
-
+        $work = WorkStatus::forTenant()->findOrFail($id);
         $data = $request->validate($this->rules());
+        $date = $this->dateInYear($data['work_date'] ?? $work->work_date?->toDateString(), 'work_date');
 
-        try {
-            DB::transaction(function () use ($work, $data) {
-                $work->update(['work_date' => $data['work_date'] ?? $work->work_date]);
-                $work->workLists()->delete();
-                $work->workLists()->createMany($data['items']);
-            });
+        DB::transaction(function () use ($work, $data, $date) {
+            $work->update(['work_date' => $date]);
+            $work->workLists()->delete();
+            $work->workLists()->createMany($data['items']);
+        });
 
-            return $this->ok($work->fresh('workLists'), 'Work status updated successfully');
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while updating work status');
-        }
+        return $this->ok($work->fresh('workLists'), 'Work status updated successfully');
     }
 
-    public function destroy(Request $request, WorkStatus $work): JsonResponse
+    public function destroy(int $id): JsonResponse
     {
-        if (!$this->canManage($request, $work)) {
-            return $this->fail('You can only delete your own work status.', 403);
-        }
-
-        $work->delete();   // work_list rows cascade
+        WorkStatus::forTenant()->findOrFail($id)->delete();   // work_list rows cascade
 
         return $this->ok(null, 'Work status deleted successfully');
     }

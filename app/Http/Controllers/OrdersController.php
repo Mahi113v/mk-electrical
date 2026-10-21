@@ -7,6 +7,7 @@ use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class OrdersController extends Controller
 {
@@ -37,29 +38,37 @@ class OrdersController extends Controller
         ];
     }
 
-    /** Admin: any order. User: only the orders they created. */
-    private function canManage(Request $request, Order $order): bool
+    private function prepare(Request $request): void
     {
-        $user = $request->user();
-
-        return $user->is_admin || $order->user_id === $user->id;
+        // rows with quantity 0 are just empty rows of the form
+        $request->merge([
+            'status' => strtolower($request->input('status') ?: 'pending'),
+            'items'  => collect($request->input('items', []))->filter(fn ($i) => (float) ($i['quantity'] ?? 0) > 0)->values()->all(),
+        ]);
     }
 
-    private function normalise(Request $request): void
+    private function requireCancelPermission(?string $status): void
     {
-        $request->merge(['status' => strtolower($request->input('status') ?: 'pending')]);
+        if ($status === 'cancelled' && !$this->tenant()->can('orders.cancel')) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('You do not have permission to cancel orders.');
+        }
     }
 
     public function index(Request $request): JsonResponse
     {
+        [$from, $to] = $this->range($request);
+
         try {
-            $orders = Order::with(['user:id,name', 'customer:id,customer_name,customer_phone', 'items.product:id,product_name,product_code'])
+            $orders = Order::forTenant()
+                ->with(['user:id,name', 'customer:id,customer_name,customer_phone', 'items.product:id,product_name,product_code'])
                 ->when($request->filled('search'), function ($q) use ($request) {
                     $s = $request->search;
                     $q->where(fn ($w) => $w->where('order_name', 'LIKE', "%{$s}%")
                         ->orWhere('customer_name', 'LIKE', "%{$s}%")
                         ->orWhere('customer_phone', 'LIKE', "%{$s}%"));
                 })
+                ->when($from, fn ($q) => $q->whereDate('order_date', '>=', $from))
+                ->when($to, fn ($q) => $q->whereDate('order_date', '<=', $to))
                 ->when($request->filled('status'), fn ($q) => $q->where('status', strtolower($request->status)))
                 ->when($request->filled('source'), fn ($q) => $q->where('source', $request->source))
                 ->orderByDesc('id')->get();
@@ -70,73 +79,69 @@ class OrdersController extends Controller
         }
     }
 
-    public function show(Order $order): JsonResponse
+    public function show(int $id): JsonResponse
     {
-        return $this->ok($order->load(['user:id,name', 'customer', 'items.product']));
+        return $this->ok(Order::forTenant()->with(['user:id,name', 'customer', 'items.product'])->findOrFail($id));
     }
 
     public function store(Request $request): JsonResponse
     {
-        $this->normalise($request);
+        $this->prepare($request);
         $data = $request->validate(self::rules());
 
-        try {
-            $order = $this->orders->save(null, $data, $request->user()->id, true);
-
-            return $this->ok($order, 'Order created successfully', 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while creating order');
+        if ($data['status'] === 'cancelled') {
+            throw ValidationException::withMessages(['status' => ['A new order cannot be cancelled.']]);
         }
+        $data['order_date'] = $this->dateInYear($data['order_date'] ?? null, 'order_date');
+
+        $t = $this->tenant();
+        $order = $this->orders->save(null, $data, $t->company, $t->year, $t->user->id, true);
+
+        return $this->ok($order, 'Order created successfully', 201);
     }
 
-    public function update(Request $request, Order $order): JsonResponse
+    public function update(Request $request, int $id): JsonResponse
     {
-        if (!$this->canManage($request, $order)) {
-            return $this->fail('You can only edit your own orders.', 403);
-        }
+        $order = Order::forTenant()->findOrFail($id);
 
-        $this->normalise($request);
+        $this->prepare($request);
         $data = $request->validate(self::rules());
+        $this->requireCancelPermission($data['status'] === 'cancelled' && $order->status !== 'cancelled' ? 'cancelled' : null);
+        $data['order_date'] = $this->dateInYear($data['order_date'] ?? null, 'order_date');
 
-        try {
-            $order = $this->orders->save($order, $data, $order->user_id, true, $order->source);
+        $t = $this->tenant();
+        $order = $this->orders->save($order, $data, $t->company, $t->year, $order->user_id, true, $order->source);
 
-            return $this->ok($order, 'Order updated successfully');
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while updating order');
-        }
+        return $this->ok($order, 'Order updated successfully');
     }
 
-    public function updateStatus(Request $request, Order $order): JsonResponse
+    public function updateStatus(Request $request, int $id): JsonResponse
     {
+        $order = Order::forTenant()->findOrFail($id);
+
         $request->merge(['status' => strtolower((string) $request->status)]);
         $data = $request->validate(['status' => ['required', Rule::in(Order::STATUSES)]]);
+        $this->requireCancelPermission($data['status']);
 
-        $order->update($data);
+        $t = $this->tenant();
+        $order = $this->orders->changeStatus($order, $data['status'], $t->company, $t->year, $t->user->id);
 
         return $this->ok($order->fresh(), 'Order status updated');
     }
 
-    public function destroy(Request $request, Order $order): JsonResponse
+    public function destroy(int $id): JsonResponse
     {
-        if (!$this->canManage($request, $order)) {
-            return $this->fail('You can only delete your own orders.', 403);
-        }
-
+        $order = Order::forTenant()->findOrFail($id);
         $this->orders->delete($order);
 
         return $this->ok(null, 'Order deleted successfully');
     }
 
     /** Printable invoice (open the returned HTML in a new tab and press Ctrl+P). */
-    public function print(Order $order)
+    public function print(int $id)
     {
-        $order->load(['items.product', 'user:id,name']);
+        $order = Order::forTenant()->with(['items.product', 'user:id,name'])->findOrFail($id);
 
-        return response()->view('orders.print', ['order' => $order]);
+        return response()->view('orders.print', ['order' => $order, 'company' => $this->tenant()->company]);
     }
 }

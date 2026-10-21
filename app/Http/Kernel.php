@@ -66,5 +66,10 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'admin' => \App\Http\Middleware\Admin::class,
         'active' => \App\Http\Middleware\ActiveUser::class,
+        'tenant' => \App\Http\Middleware\TenantContext::class,
+        'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
+        'ability' => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
+        'admin.portal' => \App\Http\Middleware\AdminPortal::class,
+        'can_do' => \App\Http\Middleware\RequirePermission::class,
     ];
 }

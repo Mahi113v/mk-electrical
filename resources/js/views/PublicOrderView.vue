@@ -1,8 +1,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { errorMessage, inr, publicApi } from '../services/api';
 import { toast } from '../services/toast';
 
+const route = useRoute();
+const companyCode = String(route.query.company || '');
+const company = ref(null);
 const blank = () => ({ customer_name: '', customer_phone: '', whatsapp: '', alternate_phone: '', area: '', city: '', address: '', notes: '' });
 const form = reactive(blank());
 const products = ref([]);
@@ -15,7 +19,11 @@ const total = computed(() => products.value.reduce((s, p) => s + (Number(qty[p.i
 const chosen = computed(() => products.value.filter((p) => Number(qty[p.id]) > 0));
 
 onMounted(async () => {
-    try { products.value = (await publicApi.products()).data.data; }
+    try {
+        const { data } = await publicApi.products(companyCode);
+        products.value = data.data.products;
+        company.value = data.data.company;
+    }
     catch (e) { toast.error(errorMessage(e, 'Could not load products')); }
     finally { loading.value = false; }
 });
@@ -27,7 +35,7 @@ const submit = async () => {
     sending.value = true;
     try {
         const payload = { ...form, items: chosen.value.map((p) => ({ product_id: p.id, quantity: Number(qty[p.id]) })) };
-        const { data } = await publicApi.createOrder(payload);
+        const { data } = await publicApi.createOrder(payload, companyCode);
         done.value = data.data;
         Object.assign(form, blank());
         Object.keys(qty).forEach((k) => delete qty[k]);
@@ -40,8 +48,8 @@ const submit = async () => {
     <div class="public-wrap">
         <div class="public-head">
             <img src="/images/mk-electrical.png" alt="MK Electrical" @error="$event.target.style.display = 'none'" />
-            <h1><span style="color: var(--danger)">MK</span> Electrical</h1>
-            <p style="color: var(--text-2); margin: 0">Camera &amp; RO systems · Sivakasi</p>
+            <h1>{{ company?.name || 'Place an order' }}</h1>
+            <p style="color: var(--text-2); margin: 0">{{ company ? 'Choose what you need and we will call you to confirm.' : 'Loading…' }}</p>
         </div>
 
         <div v-if="done" class="card success-box">

@@ -39,7 +39,7 @@ services:
       MYSQL_DATABASE: mkelectrical
       MYSQL_ROOT_PASSWORD: root
     ports:
-      - "3310:3306"
+      - "3310:3306"        # HeidiSQL: host 127.0.0.1, port 3310 (3306 is your own local MySQL)
     volumes:
       - dbdata:/var/lib/mysql
     networks:
@@ -56,6 +56,8 @@ services:
       context: .
       dockerfile: Dockerfile.node
     container_name: mkelectrical-node
+    environment:
+      - CHOKIDAR_USEPOLLING=true
     working_dir: /var/www/html
     volumes:
       - ./:/var/www/html

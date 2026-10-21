@@ -4,12 +4,14 @@ import { useRoute, useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
 import { customerApi, errorMessage } from '../services/api';
-import { isAdmin } from '../services/auth';
+import { canWrite } from '../services/auth';
+import { printRegister } from '../services/print';
 import { toast } from '../services/toast';
 
 const route = useRoute();
 const router = useRouter();
-const admin = isAdmin();
+const admin = canWrite('customers.delete');
+const manage = canWrite('customers.manage');
 const blank = () => ({ id: null, customer_name: '', customer_phone: '', whatsapp: '', alternate_phone: '', area: '', city: '', address: '' });
 const customers = ref([]);
 const loading = ref(true);
@@ -29,7 +31,21 @@ const load = async () => {
 };
 onMounted(() => {
     load();
-    if (route.query.new) { form.value = blank(); router.replace({ query: {} }); }
+    if (route.query.new && manage) { form.value = blank(); router.replace({ query: {} }); }
+});
+
+const printReg = () => printRegister({
+    title: 'Customer List',
+    columns: [
+        { label: '#', get: (_, i) => i + 1 },
+        { label: 'Name', get: (c) => c.customer_name },
+        { label: 'Phone', get: (c) => [c.customer_phone, c.whatsapp && c.whatsapp !== c.customer_phone ? `WA ${c.whatsapp}` : ''].filter(Boolean).join(' / ') },
+        { label: 'Area', get: (c) => c.area || '' },
+        { label: 'City', get: (c) => c.city || '' },
+        { label: 'Address', get: (c) => c.address || '' },
+        { label: 'Orders', num: true, get: (c) => c.orders_count },
+    ],
+    rows: shown.value,
 });
 
 const save = async () => {
@@ -57,7 +73,8 @@ const remove = async (c) => {
         <div class="toolbar">
             <div class="grow"><h3>Customers</h3><p class="sub">{{ customers.length }} customers · added automatically from orders</p></div>
             <input v-model="search" class="input" style="max-width: 260px" placeholder="Search name, phone, area…" />
-            <button class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> Add customer</button>
+            <button class="btn btn-ghost" @click="printReg"><Icon name="print" :size="16" /> Print list</button>
+            <button v-if="manage" class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> Add customer</button>
         </div>
 
         <div class="table-wrap">
@@ -75,7 +92,7 @@ const remove = async (c) => {
                         <td class="num">{{ c.orders_count }}</td>
                         <td>
                             <div class="row-actions">
-                                <button class="btn btn-ghost btn-sm" title="Edit" @click="form = { ...blank(), ...c }"><Icon name="edit" :size="16" /></button>
+                                <button v-if="manage" class="btn btn-ghost btn-sm" title="Edit" @click="form = { ...blank(), ...c }"><Icon name="edit" :size="16" /></button>
                                 <button v-if="admin" class="btn btn-danger btn-sm" title="Delete" @click="remove(c)"><Icon name="trash" :size="16" /></button>
                             </div>
                         </td>

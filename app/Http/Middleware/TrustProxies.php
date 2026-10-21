@@ -12,7 +12,8 @@ class TrustProxies extends Middleware
      *
      * @var array<int, string>|string|null
      */
-    protected $proxies;
+    // Railway / any PaaS puts a proxy in front: trust it so https links and client IP (rate limits) are right
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.

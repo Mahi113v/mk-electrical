@@ -3,7 +3,8 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "vite build"
+        "build": "vite build",
+        "build:spa": "vite build --config vite.spa.config.js"
     },
     "devDependencies": {
         "@vitejs/plugin-vue": "^5.2.1",

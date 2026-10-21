@@ -11,11 +11,12 @@ return new class extends Migration
         // PRODUCTS TABLE
         Schema::create('products', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('product_name');
             $table->string('product_code')->unique();
             $table->decimal('rate', 10, 2);
-            $table->bigInteger('stock')->nullable();
+            $table->bigInteger('stock')->nullable();   // legacy, moved to opening_stocks and dropped by a later migration
+            $table->string('image')->nullable();
             $table->timestamps();
         });
 
@@ -37,7 +38,7 @@ return new class extends Migration
             $table->decimal('order_amount', 15, 2)->nullable();
             $table->string('referral')->default('Mathan');
             $table->text('notes')->nullable();
-            $table->enum('status', ['active', 'completed', 'pending', 'upcoming', ])->default('pending');
+            $table->string('status', 20)->default('pending');   // pending|upcoming|active|completed|cancelled
             $table->timestamps();
         });
 

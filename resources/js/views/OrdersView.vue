@@ -3,14 +3,18 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
+import DateRange from '../components/DateRange.vue';
+import { fmtDate, inr as inrP, printDocument, printRegister, qty as qtyP } from '../services/print';
 import { customerApi, errorMessage, inr, orderApi, productApi } from '../services/api';
-import { isAdmin, session } from '../services/auth';
+import { can, canWrite, currentCompany, currentYear, defaultDate, defaultRange } from '../services/auth';
 import { toast } from '../services/toast';
 
 const route = useRoute();
 const router = useRouter();
-const STATUSES = ['pending', 'upcoming', 'active', 'completed'];
-const today = () => new Date().toISOString().slice(0, 10);
+const STATUSES = ['pending', 'upcoming', 'active', 'completed', 'cancelled'];
+const statusOptions = () => STATUSES.filter((s) => s !== 'cancelled' || can('orders.cancel'));
+const negativeOk = () => !!currentCompany()?.allow_negative_stock;
+const today = () => defaultDate();
 const blank = () => ({
     id: null, order_name: '', order_date: today(), status: 'pending', customer_name: '', customer_phone: '',
     whatsapp: '', alternate_phone: '', area: '', city: '', address: '', referral: 'Mathan', notes: '',
@@ -23,10 +27,13 @@ const customers = ref([]);
 const loading = ref(true);
 const search = ref('');
 const statusFilter = ref('');
+const range = ref(defaultRange());   // account year start -> today
 const form = ref(null);
 const saving = ref(false);
 
-const canManage = (o) => isAdmin() || o.user_id === session.user?.id;
+const canCreate = canWrite('orders.create');
+const canEdit = canWrite('orders.update');
+const canDelete = canWrite('orders.delete');
 
 const shown = computed(() => {
     const s = search.value.toLowerCase();
@@ -39,7 +46,7 @@ const itemsTotal = computed(() => (form.value?.items || []).reduce((s, i) => s +
 const grandTotal = computed(() => itemsTotal.value + Number(form.value?.service_charge || 0));
 
 const load = async () => {
-    try { orders.value = (await orderApi.getAll()).data.data; }
+    try { orders.value = (await orderApi.getAll({ from: range.value.from, to: range.value.to })).data.data; }
     catch (e) { toast.error(errorMessage(e)); }
     finally { loading.value = false; }
 };
@@ -50,7 +57,7 @@ onMounted(async () => {
         products.value = (await productApi.getAll()).data.data;
         customers.value = (await customerApi.getAll()).data.data;
     } catch (e) { toast.error(errorMessage(e)); }
-    if (route.query.new) { form.value = blank(); router.replace({ query: {} }); }
+    if (route.query.new && canCreate) { form.value = blank(); router.replace({ query: {} }); }
 });
 
 /* ---- form helpers ---- */
@@ -106,9 +113,39 @@ const save = async () => {
     finally { saving.value = false; }
 };
 
-const changeStatus = async (o, status) => {
-    try { await orderApi.updateStatus(o.id, status); o.status = status; toast.success('Status updated'); }
-    catch (e) { toast.error(errorMessage(e)); }
+const changeStatus = async (o, status, event) => {
+    if (status === 'cancelled' && !window.confirm('Cancel this order? The stock will be added back (see Stock Adjustment).')) {
+        event.target.value = o.status;
+        return;
+    }
+    try {
+        await orderApi.updateStatus(o.id, status);
+        toast.success(status === 'cancelled' ? 'Order cancelled - stock returned' : 'Status updated');
+        load();
+    } catch (e) {
+        event.target.value = o.status;
+        toast.error(errorMessage(e));
+    }
+};
+
+/** Order register: the orders on screen (date range + status + search applied) */
+const printReg = () => {
+    const live = shown.value.filter((o) => o.status !== 'cancelled');
+    printRegister({
+        title: 'Order Register', period: range.value,
+        columns: [
+            { label: '#', get: (o) => o.id },
+            { label: 'Order', get: (o) => o.order_name + (o.source === 'web' ? ' (web)' : '') },
+            { label: 'Customer', get: (o) => `${o.customer_name} ${o.customer_phone}` },
+            { label: 'Date', get: (o) => fmtDate(o.order_date) },
+            { label: 'Status', get: (o) => o.status },
+            { label: 'Items', get: (o) => o.items.map((i) => `${i.product?.product_name} × ${qtyP(i.quantity)}`).join(', ') },
+            { label: 'Total', num: true, get: (o) => inrP(o.total) },
+        ],
+        rows: shown.value,
+        footer: ['', '', '', '', '', 'Total (cancelled orders not counted)', inrP(live.reduce((s, o) => s + Number(o.total), 0))],
+        summary: [`Orders: ${shown.value.length}`, `Cancelled: ${shown.value.length - live.length}`],
+    });
 };
 
 const print = async (o) => {
@@ -127,8 +164,11 @@ const remove = async (o) => {
         <div class="toolbar">
             <div class="grow"><h3>Orders</h3><p class="sub">{{ orders.length }} orders</p></div>
             <input v-model="search" class="input" style="max-width: 260px" placeholder="Search order, customer, phone…" />
-            <button class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> New order</button>
+            <button class="btn btn-ghost" @click="printReg"><Icon name="print" :size="16" /> Print register</button>
+            <button v-if="canCreate" class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> New order</button>
         </div>
+
+        <DateRange v-model="range" @change="load" />
 
         <div class="chips" style="margin-bottom: 14px">
             <button class="chip" :class="{ on: !statusFilter }" @click="statusFilter = ''">All</button>
@@ -147,18 +187,17 @@ const remove = async (o) => {
                         <td>{{ o.customer_name }}<br /><small style="color: var(--muted)">{{ o.customer_phone }}</small></td>
                         <td>{{ (o.order_date || '').slice(0, 10) }}</td>
                         <td>
-                            <select class="select" style="padding: 6px 10px; width: auto" :value="o.status" :disabled="!canManage(o)" @change="changeStatus(o, $event.target.value)">
-                                <option v-for="s in STATUSES" :key="s" :value="s">{{ s }}</option>
+                            <select class="select" style="padding: 6px 10px; width: auto" :value="o.status" :disabled="!canEdit" @change="changeStatus(o, $event.target.value, $event)">
+                                <option v-for="s in statusOptions()" :key="s" :value="s">{{ s }}</option>
+                                <option v-if="o.status === 'cancelled' && !can('orders.cancel')" value="cancelled">cancelled</option>
                             </select>
                         </td>
                         <td class="num"><b>{{ inr(o.total) }}</b></td>
                         <td>
                             <div class="row-actions">
                                 <button class="btn btn-ghost btn-sm" title="Print invoice" @click="print(o)"><Icon name="print" :size="16" /></button>
-                                <template v-if="canManage(o)">
-                                    <button class="btn btn-ghost btn-sm" title="Edit" @click="edit(o)"><Icon name="edit" :size="16" /></button>
-                                    <button class="btn btn-danger btn-sm" title="Delete" @click="remove(o)"><Icon name="trash" :size="16" /></button>
-                                </template>
+                                <button v-if="canEdit && o.status !== 'cancelled'" class="btn btn-ghost btn-sm" title="Edit" @click="edit(o)"><Icon name="edit" :size="16" /></button>
+                                <button v-if="canDelete" class="btn btn-danger btn-sm" title="Delete" @click="remove(o)"><Icon name="trash" :size="16" /></button>
                             </div>
                         </td>
                     </tr>
@@ -170,7 +209,7 @@ const remove = async (o) => {
             <form @submit.prevent="save">
                 <div class="form-grid">
                     <div class="field"><label>Order name *</label><input v-model="form.order_name" class="input" required placeholder="e.g. CCTV installation" /></div>
-                    <div class="field"><label>Order date</label><input v-model="form.order_date" class="input" type="date" /></div>
+                    <div class="field"><label>Order date</label><input v-model="form.order_date" class="input" type="date" :min="currentYear()?.start_date" :max="currentYear()?.end_date" /></div>
                     <div class="field">
                         <label>Customer name *</label>
                         <input v-model="form.customer_name" class="input" list="cust-list" required autocomplete="off" @change="fillCustomer" />
@@ -189,7 +228,7 @@ const remove = async (o) => {
                     <div v-for="(row, i) in form.items" :key="i" class="item-row">
                         <select v-model="row.product_id" class="select" @change="pickProduct(row)">
                             <option value="">Select product…</option>
-                            <option v-for="p in products" :key="p.id" :value="p.id" :disabled="p.stock === 0">{{ p.product_name }}{{ p.stock !== null ? ` (stock ${p.stock})` : '' }}</option>
+                            <option v-for="p in products" :key="p.id" :value="p.id" :disabled="p.stock <= 0 && !negativeOk() && row.product_id !== p.id">{{ p.product_name }} (stock {{ p.stock }})</option>
                         </select>
                         <input v-model.number="row.quantity" class="input" type="number" min="0.01" step="any" title="Quantity" />
                         <input v-model.number="row.rate" class="input" type="number" min="0" step="0.01" title="Rate" />
@@ -202,7 +241,7 @@ const remove = async (o) => {
                 <div class="form-grid" style="margin-top: 16px">
                     <div class="field"><label>Service charge (₹)</label><input v-model.number="form.service_charge" class="input" type="number" min="0" step="0.01" /></div>
                     <div class="field"><label>Status</label>
-                        <select v-model="form.status" class="select"><option v-for="s in STATUSES" :key="s" :value="s">{{ s }}</option></select>
+                        <select v-model="form.status" class="select"><option v-for="s in statusOptions()" :key="s" :value="s">{{ s }}</option></select>
                     </div>
                     <div class="field"><label>Referral</label><input v-model="form.referral" class="input" /></div>
                     <div class="field"><label>Notes</label><input v-model="form.notes" class="input" /></div>

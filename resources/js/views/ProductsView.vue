@@ -2,12 +2,13 @@
 import { computed, onMounted, ref } from 'vue';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
-import { errorMessage, inr, productApi } from '../services/api';
-import { isAdmin } from '../services/auth';
+import { errorMessage, inr, productApi, qty } from '../services/api';
+import { canWrite, currentYear } from '../services/auth';
+import { printRegister } from '../services/print';
 import { toast } from '../services/toast';
 
-const admin = isAdmin();
-const blank = () => ({ id: null, product_name: '', product_code: '', rate: '', stock: '' });
+const admin = canWrite('products.manage');
+const blank = () => ({ id: null, product_name: '', product_code: '', rate: '' });
 const products = ref([]);
 const loading = ref(true);
 const search = ref('');
@@ -26,11 +27,23 @@ const load = async () => {
 };
 onMounted(load);
 
+const printReg = () => printRegister({
+    title: `Product List (stock of ${currentYear()?.label})`,
+    columns: [
+        { label: '#', get: (_, i) => i + 1 },
+        { label: 'Code', get: (p) => p.product_code },
+        { label: 'Product', get: (p) => p.product_name },
+        { label: 'Rate', num: true, get: (p) => inr(p.rate) },
+        { label: 'Stock', num: true, get: (p) => qty(p.stock) },
+    ],
+    rows: shown.value,
+});
+
 const save = async () => {
     saving.value = true;
     try {
         const f = form.value;
-        const payload = { product_name: f.product_name, product_code: f.product_code, rate: f.rate, stock: f.stock === '' ? null : f.stock };
+        const payload = { product_name: f.product_name, product_code: f.product_code || null, rate: f.rate };
         const { data } = f.id ? await productApi.update(f.id, payload) : await productApi.create(payload);
         toast.success(data.message);
         form.value = null;
@@ -49,8 +62,9 @@ const remove = async (p) => {
 <template>
     <div class="card">
         <div class="toolbar">
-            <div class="grow"><h3>Products</h3><p class="sub">{{ products.length }} items · stock updates automatically with orders</p></div>
+            <div class="grow"><h3>Products</h3><p class="sub">{{ products.length }} items · shared by all companies · stock is for the selected company and year</p></div>
             <input v-model="search" class="input" style="max-width: 260px" placeholder="Search products…" />
+            <button class="btn btn-ghost" @click="printReg"><Icon name="print" :size="16" /> Print list</button>
             <button v-if="admin" class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> Add product</button>
         </div>
 
@@ -65,10 +79,10 @@ const remove = async (p) => {
                         <td><b>{{ p.product_name }}</b></td>
                         <td>{{ p.product_code }}</td>
                         <td class="num">{{ inr(p.rate) }}</td>
-                        <td class="num"><span v-if="p.stock === null" style="color: var(--muted)">—</span><span v-else class="badge" :class="p.stock === 0 ? 'off' : p.stock <= 5 ? 'pending' : 'ok'">{{ p.stock }}</span></td>
+                        <td class="num"><span class="badge" :class="p.stock <= 0 ? 'off' : p.stock <= 5 ? 'pending' : 'ok'">{{ qty(p.stock) }}</span></td>
                         <td v-if="admin">
                             <div class="row-actions">
-                                <button class="btn btn-ghost btn-sm" title="Edit" @click="form = { ...p, stock: p.stock ?? '' }"><Icon name="edit" :size="16" /></button>
+                                <button class="btn btn-ghost btn-sm" title="Edit" @click="form = { ...p }"><Icon name="edit" :size="16" /></button>
                                 <button class="btn btn-danger btn-sm" title="Delete" @click="remove(p)"><Icon name="trash" :size="16" /></button>
                             </div>
                         </td>
@@ -80,11 +94,9 @@ const remove = async (p) => {
         <Modal v-if="form" :title="form.id ? 'Edit product' : 'Add product'" @close="form = null">
             <form @submit.prevent="save">
                 <div class="field"><label>Product name *</label><input v-model="form.product_name" class="input" required /></div>
-                <div class="field"><label>Product code *</label><input v-model="form.product_code" class="input" required /></div>
-                <div class="form-grid">
-                    <div class="field"><label>Rate (₹) *</label><input v-model="form.rate" class="input" type="number" min="0" step="0.01" required /></div>
-                    <div class="field"><label>Stock</label><input v-model="form.stock" class="input" type="number" min="0" step="1" placeholder="empty = not tracked" /></div>
-                </div>
+                <div class="field"><label>Product code {{ form.id ? '*' : '' }}</label><input v-model="form.product_code" class="input" :required="!!form.id" :placeholder="form.id ? '' : 'leave empty - created automatically (PRD-00001)'" /></div>
+                <div class="field"><label>Selling rate (₹) *</label><input v-model="form.rate" class="input" type="number" min="0" step="0.01" required /></div>
+                <p class="sub">Stock is not typed here. Add it with Opening Stock, Purchase or Stock Adjustment.</p>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-ghost" @click="form = null">Cancel</button>
                     <button class="btn btn-primary" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>

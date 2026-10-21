@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Order #{{ $order->id }} - MK Electrical</title>
+<title>Order #{{ $order->id }} - {{ $company->name }}</title>
 <style>
   body{font-family:Inter,Arial,sans-serif;color:#0f172a;margin:0;padding:32px;max-width:820px;margin:auto}
   h1{margin:0;font-size:26px} h1 span{color:#ef4444}
@@ -19,8 +19,8 @@
 </style>
 </head>
 <body onload="window.print()">
-  <h1><span>MK</span> ELECTRICAL</h1>
-  <div class="muted">Sivakasi, Tamil Nadu &middot; +91 95850 09824</div>
+  <h1>{{ $company->name }}</h1>
+  <div class="muted">{{ collect([$company->address, $company->city, $company->phone ? "Ph: ".$company->phone : null, $company->gstin ? "GSTIN: ".$company->gstin : null])->filter()->implode(" · ") }}</div>
 
   <div class="row">
     <div>

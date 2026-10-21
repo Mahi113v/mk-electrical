@@ -6,6 +6,7 @@ use App\Models\Customer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
+/** Customers are a shared master (all companies). */
 class CustomersController extends Controller
 {
     private function rules(): array
@@ -23,60 +24,41 @@ class CustomersController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        try {
-            $customers = Customer::with('user:id,name')->withCount('orders')
-                ->when($request->filled('search'), function ($q) use ($request) {
-                    $s = $request->search;
-                    $q->where(fn ($w) => $w->where('customer_name', 'LIKE', "%{$s}%")
-                        ->orWhere('customer_phone', 'LIKE', "%{$s}%")
-                        ->orWhere('area', 'LIKE', "%{$s}%")
-                        ->orWhere('city', 'LIKE', "%{$s}%"));
-                })
-                ->orderByDesc('id')->get();
+        $customers = Customer::with('user:id,name')->withCount('orders')
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $s = $request->search;
+                $q->where(fn ($w) => $w->where('customer_name', 'LIKE', "%{$s}%")
+                    ->orWhere('customer_phone', 'LIKE', "%{$s}%")
+                    ->orWhere('area', 'LIKE', "%{$s}%")->orWhere('city', 'LIKE', "%{$s}%"));
+            })
+            ->orderByDesc('id')->get();
 
-            return $this->ok($customers, 'Customer fetched successfully');
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Customer fetch server error');
-        }
+        return $this->ok($customers, 'Customer fetched successfully');
     }
 
-    public function show(Customer $customer): JsonResponse
+    public function show(int $id): JsonResponse
     {
-        return $this->ok($customer->load(['user:id,name', 'orders' => fn ($q) => $q->latest('id')->limit(20)]));
+        return $this->ok(Customer::with(['user:id,name', 'orders' => fn ($q) => $q->latest('id')->limit(20)])->findOrFail($id));
     }
 
     public function store(Request $request): JsonResponse
     {
-        try {
-            $data = $request->validate($this->rules(), [
-                'customer_phone.required' => 'Customer phone is required',
-            ]);
+        $data = $request->validate($this->rules());
 
-            $customer = Customer::create($data + ['user_id' => $request->user()->id]);
-
-            return $this->ok($customer, 'Customer created successfully', 201);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while creating customer');
-        }
+        return $this->ok(Customer::create($data + ['user_id' => $request->user()->id]), 'Customer created successfully', 201);
     }
 
-    public function update(Request $request, Customer $customer): JsonResponse
+    public function update(Request $request, int $id): JsonResponse
     {
-        try {
-            $customer->update($request->validate($this->rules()));
+        $customer = Customer::findOrFail($id);
+        $customer->update($request->validate($this->rules()));
 
-            return $this->ok($customer->fresh(), 'Customer updated successfully');
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            return $this->serverError($e, 'Server error while updating customer');
-        }
+        return $this->ok($customer->fresh(), 'Customer updated successfully');
     }
 
-    public function destroy(Customer $customer): JsonResponse
+    public function destroy(int $id): JsonResponse
     {
+        $customer = Customer::findOrFail($id);
         $customer->orders()->update(['customer_id' => null]);   // keep order history
         $customer->delete();
 

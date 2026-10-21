@@ -2,20 +2,22 @@
 import { computed, onMounted, ref } from 'vue';
 import Icon from '../components/Icon.vue';
 import Modal from '../components/Modal.vue';
+import DateRange from '../components/DateRange.vue';
+import { fmtDate, printRegister } from '../services/print';
 import { errorMessage, workApi } from '../services/api';
-import { isAdmin, session } from '../services/auth';
+import { canWrite, currentYear, defaultDate, defaultRange } from '../services/auth';
 import { toast } from '../services/toast';
 
-const cursor = ref(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+const range = ref(defaultRange());   // account year start -> today
 const works = ref([]);
 const loading = ref(true);
 const form = ref(null);
 const saving = ref(false);
 
-const label = computed(() => cursor.value.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }));
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => defaultDate();
 const blank = () => ({ id: null, work_date: today(), items: [{ work_place: '', worker_name: '' }] });
-const canManage = (w) => isAdmin() || w.user_id === session.user?.id;
+const manage = canWrite('work_status.manage');
+const canManage = () => manage;
 
 // group the month's entries by date
 const grouped = computed(() => {
@@ -27,14 +29,24 @@ const grouped = computed(() => {
 const load = async () => {
     loading.value = true;
     try {
-        const { data } = await workApi.getAll({ month: cursor.value.getMonth() + 1, year: cursor.value.getFullYear() });
+        const { data } = await workApi.getAll({ from: range.value.from, to: range.value.to });
         works.value = data.data;
     } catch (e) { toast.error(errorMessage(e)); works.value = []; }
     finally { loading.value = false; }
 };
 onMounted(load);
 
-const shift = (n) => { cursor.value = new Date(cursor.value.getFullYear(), cursor.value.getMonth() + n, 1); load(); };
+const printReg = () => printRegister({
+    title: 'Work Status Register', period: range.value,
+    columns: [
+        { label: 'Date', get: (r) => fmtDate(r.date) },
+        { label: 'Work place', get: (r) => r.place },
+        { label: 'Worker', get: (r) => r.worker },
+        { label: 'Added by', get: (r) => r.by },
+    ],
+    rows: works.value.slice().sort((a, b) => (a.work_date < b.work_date ? 1 : -1))
+        .flatMap((w) => w.work_lists.map((l) => ({ date: w.work_date, place: l.work_place, worker: l.worker_name, by: w.user?.name || '' }))),
+});
 
 const edit = (w) => (form.value = { id: w.id, work_date: (w.work_date || '').slice(0, 10), items: w.work_lists.map((l) => ({ work_place: l.work_place, worker_name: l.worker_name })) });
 
@@ -65,22 +77,27 @@ const fmt = (d) => new Date(d + 'T00:00').toLocaleDateString('en-IN', { weekday:
     <div class="card">
         <div class="toolbar">
             <div class="grow"><h3>Work status</h3><p class="sub">Who worked where, day by day</p></div>
-            <div class="row-actions" style="align-items: center">
-                <button class="mk-icon-btn" aria-label="Previous month" @click="shift(-1)"><Icon name="chevl" /></button>
-                <b style="min-width: 140px; text-align: center">{{ label }}</b>
-                <button class="mk-icon-btn" aria-label="Next month" @click="shift(1)"><Icon name="chevr" /></button>
-            </div>
-            <button class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> Add work</button>
+            <button class="btn btn-ghost" @click="printReg"><Icon name="print" :size="16" /> Print register</button>
+            <button v-if="manage" class="btn btn-primary" @click="form = blank()"><Icon name="plus" :size="16" /> Add work</button>
         </div>
 
+        <DateRange v-model="range" @change="load" />
+
         <div v-if="loading" class="empty">Loading…</div>
-        <div v-else-if="!grouped.length" class="empty">No work entries for {{ label }}</div>
+        <div v-else-if="!grouped.length" class="empty">No work entries in this period</div>
 
         <div v-for="[date, list] in grouped" :key="date" class="day-group">
             <h4>{{ fmt(date) }}</h4>
             <div class="table-wrap">
                 <table class="tbl">
-                    <thead><tr><th>Work place</th><th>Worker</th><th>Added by</th><th /></tr></thead>
+                    <thead>
+                        <tr>
+                            <th style="width: 30%;">Work places</th>
+                            <th style="width: 30%;">Worker</th>
+                            <th style="width: 20%;">Added by</th>
+                            <th style="width: 20%;">Actions</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         <template v-for="w in list" :key="w.id">
                             <tr v-for="(l, i) in w.work_lists" :key="l.id">
@@ -102,7 +119,7 @@ const fmt = (d) => new Date(d + 'T00:00').toLocaleDateString('en-IN', { weekday:
 
         <Modal v-if="form" :title="form.id ? 'Edit work' : 'Add work'" @close="form = null">
             <form @submit.prevent="save">
-                <div class="field"><label>Date</label><input v-model="form.work_date" class="input" type="date" required /></div>
+                <div class="field"><label>Date</label><input v-model="form.work_date" class="input" type="date" required :min="currentYear()?.start_date" :max="currentYear()?.end_date" /></div>
                 <label style="font-size: 13px; font-weight: 600; color: var(--text-2)">Work places and workers</label>
                 <div v-for="(row, i) in form.items" :key="i" style="display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; margin: 8px 0">
                     <input v-model="row.work_place" class="input" placeholder="Work place" required />

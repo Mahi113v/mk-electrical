@@ -1,28 +1,22 @@
 <?php
 
+/*
+| Browsers on other addresses (Netlify frontend -> Railway backend) may call the API only from these origins.
+| Set CORS_ALLOWED_ORIGINS in .env / Railway as a comma separated list.
+*/
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | Cross-Origin Resource Sharing (CORS) Configuration
-    |--------------------------------------------------------------------------
-    |
-    | Here you may configure your settings for cross-origin resource sharing
-    | or "CORS". This determines what cross-origin operations may execute
-    | in web browsers. You are free to adjust these settings as needed.
-    |
-    | To learn more: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-    |
-    */
-
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'paths' => ['api/*'],
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['https://mk-electrical.netlify.app'],
+    'allowed_origins' => array_values(array_filter(array_map('trim', explode(',', env(
+        'CORS_ALLOWED_ORIGINS',
+        'https://mk-electrical.netlify.app,http://localhost:5173,http://127.0.0.1:5173'
+    ))))),
 
     'allowed_origins_patterns' => [],
 
+    // X-Company-Id and X-Year-Id are custom headers, they must be allowed
     'allowed_headers' => ['*'],
 
     'exposed_headers' => [],
@@ -30,5 +24,4 @@ return [
     'max_age' => 0,
 
     'supports_credentials' => false,
-
 ];

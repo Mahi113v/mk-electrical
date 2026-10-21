@@ -1,0 +1,10 @@
+# Frontend on Netlify. Set the environment variable VITE_API_URL in Netlify:
+#   VITE_API_URL = https://<your-backend>.up.railway.app/api
+[build]
+  command = "npm install && npm run build:spa"
+  publish = "dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
