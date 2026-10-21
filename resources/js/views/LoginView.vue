@@ -104,7 +104,7 @@ const bars = [38, 62, 48, 80, 58, 92];
                 <div class="lg-glass">
                     <div class="lg-glass-top">
                         <div class="lg-chips">
-                            <span class="on">MK</span><span>SAI</span><span>VA</span>
+                            <span class="on">MK</span>
                         </div>
                         <small>April to March</small>
                     </div>
