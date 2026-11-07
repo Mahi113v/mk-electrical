@@ -7,6 +7,10 @@
   body{font-family:Inter,Arial,sans-serif;color:#0f172a;margin:0;padding:32px;max-width:820px;margin:auto}
   h1{margin:0;font-size:26px} h1 span{color:#ef4444}
   .muted{color:#64748b;font-size:13px}
+  .head{display:flex;align-items:center;gap:16px}
+  .head img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid #e2e8f0}
+  .pay{margin-top:28px;padding:14px 16px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;line-height:1.7}
+  .pay b{display:inline-block;min-width:110px;color:#475569}
   .row{display:flex;justify-content:space-between;gap:24px;margin:20px 0}
   table{width:100%;border-collapse:collapse;margin-top:12px}
   th,td{padding:10px;border-bottom:1px solid #e2e8f0;text-align:left;font-size:14px}
@@ -19,8 +23,13 @@
 </style>
 </head>
 <body onload="window.print()">
-  <h1>{{ $company->name }}</h1>
-  <div class="muted">{{ collect([$company->address, $company->city, $company->phone ? "Ph: ".$company->phone : null, $company->gstin ? "GSTIN: ".$company->gstin : null])->filter()->implode(" · ") }}</div>
+  <div class="head">
+    <img src="{{ $company->logo_url ?: url('/images/mk-electrical.png') }}" alt="" onerror="this.style.display='none'">
+    <div>
+      <h1>{{ $company->name }}</h1>
+      <div class="muted">{{ collect([$company->address, $company->city, $company->phone ? "Ph: ".$company->phone : null, $company->gstin ? "GSTIN: ".$company->gstin : null])->filter()->implode(" · ") }}</div>
+    </div>
+  </div>
 
   <div class="row">
     <div>
@@ -58,5 +67,18 @@
   </div>
 
   @if($order->notes)<p class="muted">Notes: {{ $order->notes }}</p>@endif
+
+  @if($company->upi_id || $company->account_number)
+  <div class="pay">
+    <strong>Pay to</strong><br>
+    @if($company->upi_id)<div><b>UPI</b> {{ $company->upi_id }}@if($company->upi_name) ({{ $company->upi_name }})@endif</div>@endif
+    @if($company->account_number)
+      <div><b>Bank</b> {{ $company->bank_name }}@if($company->bank_branch), {{ $company->bank_branch }}@endif</div>
+      <div><b>Account name</b> {{ $company->account_holder ?: $company->name }}</div>
+      <div><b>Account number</b> {{ $company->account_number }}</div>
+      @if($company->ifsc)<div><b>IFSC</b> {{ $company->ifsc }}</div>@endif
+    @endif
+  </div>
+  @endif
 </body>
 </html>

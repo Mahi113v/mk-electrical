@@ -23,7 +23,7 @@ class ProductCodeGenerator
     {
         for ($try = 0; $try < 5; $try++) {
             try {
-                return \Illuminate\Support\Facades\DB::transaction(fn () => Product::create([
+                return \App\Support\TenantDb::transaction(fn () => Product::create([
                     'product_name' => $name,
                     'product_code' => $this->next(),
                     'rate'         => $rate,

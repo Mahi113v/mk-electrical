@@ -2,15 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-/** Shared master: the same product list is used by every company. Stock is per company + year (StockService). */
+/** A company's own product list. Product code is unique inside the company. Stock is per company + year (StockService). */
 class Product extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToCompany;
 
-    protected $fillable = ['user_id', 'product_name', 'product_code', 'rate', 'image'];
+    protected $fillable = ['company_id', 'user_id', 'product_name', 'product_code', 'rate', 'image'];
 
     protected $casts = ['rate' => 'decimal:2'];
 

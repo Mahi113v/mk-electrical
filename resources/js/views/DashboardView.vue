@@ -10,6 +10,11 @@ const greeting = () => {
     const h = new Date().getHours();
     return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 };
+/* the company image is the banner of the dashboard (when it has one) */
+const heroStyle = computed(() => {
+    const img = currentCompany()?.image_url;
+    return img ? { backgroundImage: `linear-gradient(135deg, rgba(15,12,40,.82), rgba(79,70,229,.55)), url(${img})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+});
 const max = computed(() => Math.max(...(stats.value?.monthly_revenue.map((m) => m.total) || [1]), 1));
 const totalOrders = computed(() => Math.max(stats.value?.orders_total || 0, 1));
 
@@ -23,7 +28,7 @@ onMounted(async () => {
     <div v-if="!stats" class="grid grid-4"><div v-for="i in 4" :key="i" class="skeleton" style="height: 140px" /></div>
 
     <template v-else>
-        <section class="hero">
+        <section class="hero" :style="heroStyle">
             <h2>{{ greeting() }}, {{ session.user?.name?.split(' ')[0] }} 👋</h2>
             <p>{{ currentCompany()?.name }} · Account year {{ currentYear()?.label }}</p>
             <div class="hero-actions">

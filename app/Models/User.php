@@ -9,6 +9,12 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
+    /** shared control table: always the main database (never a company's own database) */
+    public function getConnectionName()
+    {
+        return config('database.default');
+    }
+
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AccountYear;
 use App\Models\Company;
 use App\Models\CompanyYear;
+use App\Models\Customer;
 use App\Models\Product;
 use App\Services\OrderService;
 use App\Services\StockService;
@@ -15,6 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Public (no login) order form for customers.  /order-data?company=MK
+ * The customer types a company code. Everything on the form (products, customers, prices) is that company's own data.
  * The order lands in that company's CURRENT account year with status "pending".
  */
 class WebOrderController extends Controller
@@ -23,6 +25,7 @@ class WebOrderController extends Controller
     {
     }
 
+    /** the company from ?company=CODE, the current account year; the company (and its own database) becomes the current one */
     private function resolve(Request $request): array
     {
         $companies = Company::where('status', 'active');
@@ -31,13 +34,16 @@ class WebOrderController extends Controller
             : ((clone $companies)->count() === 1 ? (clone $companies)->first() : null);
 
         if (!$company) {
-            throw ValidationException::withMessages(['company' => ['Company not found. Use the link given by the shop.']]);
+            throw ValidationException::withMessages(['company' => ['Company not found. Check the code and try again.']]);
         }
-
         $today = now()->toDateString();
         $year = AccountYear::where('start_date', '<=', $today)->where('end_date', '>=', $today)->first();
         if (!$year) {
             throw ValidationException::withMessages(['company' => ['Orders are closed right now.']]);
+        }
+        $this->tenant()->setPublic($company, $year);
+        if (!$this->tenant()->hasTable('orders') || !$this->tenant()->hasTable('products')) {
+            throw ValidationException::withMessages(['company' => ['This company does not take online orders.']]);
         }
 
         return [$company, $year];
@@ -52,9 +58,49 @@ class WebOrderController extends Controller
         $available = $this->stock->available($company->id, $year->id, $products->pluck('id')->all());
 
         return $this->ok([
-            'company'  => ['code' => $company->code, 'name' => $company->name],
+            'company'  => $company->profile(),
             'products' => $products->filter(fn ($p) => $company->allow_negative_stock || $available[$p->id] > 0)->values(),
         ]);
+    }
+
+    /**
+     * "I ordered before": find the customer of THIS company.
+     * PUBLIC_CUSTOMER_SEARCH=phone (default) -> a full mobile number only, so nobody can browse other people's addresses.
+     * PUBLIC_CUSTOMER_SEARCH=name_phone      -> name or part of the number as well.
+     */
+    public function customers(Request $request): JsonResponse
+    {
+        $request->validate(['q' => ['required', 'string', 'min:3', 'max:50']]);
+        $this->resolve($request);
+        if (!$this->tenant()->hasTable('customers')) {
+            return $this->ok([]);
+        }
+
+        $q = trim($request->q);
+        $digits = preg_replace('/\D+/', '', $q);
+        $open = config('app.public_customer_search') === 'name_phone';
+
+        $rows = Customer::query()
+            ->where(function ($w) use ($q, $digits, $open) {
+                if ($open) {
+                    $like = '%' . addcslashes($q, '%_\\') . '%';
+                    $w->where('customer_name', 'LIKE', $like);
+                    if (strlen($digits) >= 4) {
+                        $w->orWhere('customer_phone', 'LIKE', "%{$digits}%")->orWhere('whatsapp', 'LIKE', "%{$digits}%");
+                    }
+                } else {
+                    // full number (last 10 digits), so +91 / spaces do not matter
+                    $last = substr($digits, -10);
+                    $w->whereRaw('1 = 0');
+                    if (strlen($last) === 10) {
+                        $w->orWhere('customer_phone', 'LIKE', "%{$last}")->orWhere('whatsapp', 'LIKE', "%{$last}");
+                    }
+                }
+            })
+            ->orderBy('customer_name')->limit(8)
+            ->get(['id', 'customer_name', 'customer_phone', 'whatsapp', 'alternate_phone', 'area', 'city', 'address']);
+
+        return $this->ok($rows);
     }
 
     public function create(Request $request): JsonResponse
@@ -74,6 +120,7 @@ class WebOrderController extends Controller
         $rules = OrdersController::rules(true);
         $rules['order_name'] = ['nullable', 'string', 'max:255'];
         unset($rules['referral'], $rules['service_charge'], $rules['order_date']);
+        $rules['items.*.rate'] = ['prohibited'];
         $data = $request->validate($rules);
 
         $data['order_name']     = $data['order_name'] ?? ('Web order - ' . $data['customer_name']);

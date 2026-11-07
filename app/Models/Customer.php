@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/** A company's own customer list (the same person is a separate record in every company). */
 class Customer extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToCompany;
 
     protected $fillable = [
-        'user_id', 'customer_name', 'customer_phone', 'whatsapp',
+        'company_id', 'user_id', 'customer_name', 'customer_phone', 'whatsapp',
         'alternate_phone', 'area', 'city', 'address',
     ];
 

@@ -81,7 +81,7 @@ class SampleDataTest extends TestCase
         // the Reference column is filled, customers and products exist, two products got automatic codes
         $this->assertSame(0, Sale::whereNull('reference')->orWhere('reference', '')->count());
         $this->assertGreaterThanOrEqual(14, Product::count());
-        $this->assertSame(['PRD-00001', 'PRD-00002'], Product::where('product_code', 'like', 'PRD-%')->orderBy('product_code')->pluck('product_code')->all());
+        $this->assertSame(['PRD-00001', 'PRD-00002'], Product::where('company_id', $mk->id)->where('product_code', 'like', 'PRD-%')->orderBy('product_code')->pluck('product_code')->all());
         $this->assertGreaterThanOrEqual(8, DB::table('customers')->count());
 
         // three companies, each with data
@@ -140,7 +140,7 @@ class SampleDataTest extends TestCase
         $this->login('/api/login', 'sairaj@mkelectrical-app.in')->assertOk();
 
         // everybody else: user login only
-        foreach (['dhinesh', 'manager', 'stock', 'sales', 'viewer', 'counter'] as $who) {
+        foreach (['dinesh', 'manager', 'stock', 'sales', 'viewer', 'counter'] as $who) {
             $email = "$who@mkelectrical-app.in";
             $this->login('/api/login', $email)->assertOk()->assertJsonPath('company_id', $this->mk()->id);
             $this->login('/api/admin/login', $email)->assertStatus(403);

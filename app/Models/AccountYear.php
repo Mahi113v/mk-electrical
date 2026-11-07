@@ -6,6 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class AccountYear extends Model
 {
+    /** shared control table: always the main database (never a company's own database) */
+    public function getConnectionName()
+    {
+        return config('database.default');
+    }
+
     protected $fillable = ['code', 'label', 'start_date', 'end_date'];
 
     protected $casts = ['start_date' => 'date:Y-m-d', 'end_date' => 'date:Y-m-d'];

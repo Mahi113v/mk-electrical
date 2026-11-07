@@ -2,14 +2,17 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToCompany;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class OrderItem extends Model
 {
+    use BelongsToCompany;
+
     use HasFactory;
 
-    protected $fillable = ['order_id', 'product_id', 'quantity', 'rate', 'amount', 'total'];
+    protected $fillable = ['company_id', 'order_id', 'product_id', 'quantity', 'rate', 'amount', 'total'];
 
     protected $casts = [
         'quantity' => 'decimal:2',

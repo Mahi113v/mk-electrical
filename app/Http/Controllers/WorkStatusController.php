@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\WorkStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Support\TenantDb;
 
 class WorkStatusController extends Controller
 {
@@ -48,7 +48,7 @@ class WorkStatusController extends Controller
         $data = $request->validate($this->rules());
         $date = $this->dateInYear($data['work_date'] ?? null, 'work_date');
 
-        $work = DB::transaction(function () use ($data, $date, $request) {
+        $work = TenantDb::transaction(function () use ($data, $date, $request) {
             $work = WorkStatus::create(['user_id' => $request->user()->id, 'work_date' => $date]);
             $work->workLists()->createMany($data['items']);
 
@@ -64,7 +64,7 @@ class WorkStatusController extends Controller
         $data = $request->validate($this->rules());
         $date = $this->dateInYear($data['work_date'] ?? $work->work_date?->toDateString(), 'work_date');
 
-        DB::transaction(function () use ($work, $data, $date) {
+        TenantDb::transaction(function () use ($work, $data, $date) {
             $work->update(['work_date' => $date]);
             $work->workLists()->delete();
             $work->workLists()->createMany($data['items']);

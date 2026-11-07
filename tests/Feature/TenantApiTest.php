@@ -60,9 +60,9 @@ class TenantApiTest extends TestCase
         ]);
     }
 
-    private function product(string $name = 'Wire', float $rate = 100): Product
+    private function product(string $name = 'Wire', float $rate = 100, ?Company $co = null): Product
     {
-        return Product::create(['product_name' => $name, 'product_code' => 'T-' . uniqid(), 'rate' => $rate]);
+        return Product::create(['company_id' => ($co ?? $this->co)->id, 'product_name' => $name, 'product_code' => 'T-' . uniqid(), 'rate' => $rate]);
     }
 
     private function dateIn(AccountYear $y = null): string
@@ -142,7 +142,9 @@ class TenantApiTest extends TestCase
         $this->as($b, $beta)->getJson("/api/orders/$orderId")->assertStatus(404);
         $this->as($b, $beta)->deleteJson("/api/orders/$orderId")->assertStatus(404);
         $this->as($b, $beta)->putJson("/api/orders/$orderId", $this->orderPayload($p, 1))->assertStatus(404);
-        $this->assertSame(0.0, $this->stockOfFor($p, $b, $beta));   // Beta never bought anything
+        // products are Alpha's own: Beta's stock list does not even show them
+        $this->assertNull(collect($this->as($b, $beta)->getJson('/api/stock')->json('data.rows'))->firstWhere('product_id', $p->id));
+        $this->as($b, $beta)->getJson('/api/products')->assertOk()->assertJsonCount(0, 'data');
     }
 
     private function stockOfFor(Product $p, User $u, Company $co): float
@@ -178,8 +180,8 @@ class TenantApiTest extends TestCase
     public function test_purchase_adds_new_products_with_unique_code_and_tops_up_existing_ones(): void
     {
         $u = $this->member();
-        Product::create(['product_name' => 'Old', 'product_code' => 'PRD-00007', 'rate' => 5]);
-        Product::create(['product_name' => 'Manual', 'product_code' => 'CAM-01', 'rate' => 5]);
+        Product::create(['company_id' => $this->co->id, 'product_name' => 'Old', 'product_code' => 'PRD-00007', 'rate' => 5]);
+        Product::create(['company_id' => $this->co->id, 'product_name' => 'Manual', 'product_code' => 'CAM-01', 'rate' => 5]);
 
         $r = $this->as($u)->postJson('/api/purchases', [
             'purchase_date' => $this->dateIn(), 'supplier_name' => 'ABC Traders', 'invoice_no' => 'INV-1',

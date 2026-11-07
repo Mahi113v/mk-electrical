@@ -42,6 +42,13 @@ const masterVisible = computed(() => masterItems.filter((i) => can(i.perm)));
 const title = computed(() => route.meta.title || 'MK Electrical');
 const initials = computed(() => (session.user?.name || 'U').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase());
 const company = computed(() => currentCompany());
+
+/* company logo; if it is missing or broken the default MK logo is shown */
+const DEFAULT_LOGO = '/images/mk-electrical.png';
+const logoFallback = (e) => {
+    if (!e.target.src.endsWith(DEFAULT_LOGO)) e.target.src = DEFAULT_LOGO;
+    else e.target.style.display = 'none';
+};
 const year = computed(() => currentYear());
 const viewKey = computed(() => `${session.companyId}-${session.yearId}`);   // screens reload when company / year changes
 
@@ -63,7 +70,7 @@ const logout = async () => {
 
         <aside class="mk-sidebar" :class="{ open }">
             <div class="mk-brand">
-                <img class="mk-brand-logo" src="/images/mk-electrical.png" alt="MK" @error="$event.target.style.display = 'none'" />
+                <img :key="company?.id" class="mk-brand-logo" :src="company?.logo_url || DEFAULT_LOGO" :alt="company?.name || 'MK'" @error="logoFallback" />
                 <div>
                     <div class="mk-brand-name">{{ (company?.name || 'MK Electrical').toUpperCase().slice(0, 18) }}</div>
                     <div class="mk-brand-sub">{{ company?.code }} · BUSINESS SUITE</div>

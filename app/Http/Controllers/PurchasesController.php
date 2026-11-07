@@ -9,7 +9,8 @@ use App\Services\ProductCodeGenerator;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Support\TenantDb;
+use App\Support\TenantRules;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -33,7 +34,7 @@ class PurchasesController extends Controller
             'invoice_no'           => ['nullable', 'string', 'max:255'],
             'notes'                => ['nullable', 'string', 'max:2000'],
             'items'                => ['required', 'array', 'min:1'],
-            'items.*.product_id'   => ['nullable', 'integer', 'exists:products,id'],
+            'items.*.product_id'   => ['nullable', 'integer', TenantRules::exists(Product::class)],
             'items.*.product_name' => ['nullable', 'string', 'max:255', 'required_without:items.*.product_id'],
             'items.*.quantity'     => ['required', 'numeric', 'min:0.01'],
             'items.*.rate'         => ['required', 'numeric', 'min:0'],      // purchase rate
@@ -76,7 +77,7 @@ class PurchasesController extends Controller
         $data = $request->validate($this->rules());
         $data['purchase_date'] = $this->dateInYear($data['purchase_date'] ?? null, 'purchase_date');
 
-        $result = DB::transaction(fn () => $this->persist(null, $data));
+        $result = TenantDb::transaction(fn () => $this->persist(null, $data));
 
         return $this->ok($result, 'Products added to stock', 201);
     }
@@ -89,7 +90,7 @@ class PurchasesController extends Controller
         $data = $request->validate($this->rules());
         $data['purchase_date'] = $this->dateInYear($data['purchase_date'] ?? null, 'purchase_date');
 
-        $result = DB::transaction(fn () => $this->persist($purchase, $data));
+        $result = TenantDb::transaction(fn () => $this->persist($purchase, $data));
 
         return $this->ok($result, 'Purchase updated');
     }
@@ -99,7 +100,7 @@ class PurchasesController extends Controller
         $purchase = Purchase::forTenant()->findOrFail($id);
         $t = $this->tenant();
 
-        DB::transaction(function () use ($purchase, $t) {
+        TenantDb::transaction(function () use ($purchase, $t) {
             $ids = $purchase->items()->pluck('product_id')->all();
             $purchase->delete();   // items cascade
             $this->stock->assertNotNegative($t->company, $t->yearId(), $ids);   // removing stock may not make it negative

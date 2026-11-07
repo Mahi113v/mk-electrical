@@ -7,7 +7,7 @@ use App\Models\Product;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Support\TenantDb;
 
 /**
  * Opening stock of the selected company + year.
@@ -38,7 +38,7 @@ class OpeningStockController extends Controller
             return $this->fail('There is no earlier account year, so there is nothing to carry forward. Enter the opening stock by hand.', 422);
         }
 
-        $stats = DB::transaction(function () use ($t, $previous, $force) {
+        $stats = TenantDb::transaction(function () use ($t, $previous, $force) {
             $closing = $this->stock->closingOfYear($t->company, $previous);
             $existing = OpeningStock::forTenant()->get()->keyBy('product_id');
             $stats = ['updated' => 0, 'skipped_manual' => 0, 'unchanged' => 0];
@@ -78,7 +78,7 @@ class OpeningStockController extends Controller
         $data = $request->validate(['quantity' => ['required', 'numeric', 'min:0', 'max:99999999']]);
         $t = $this->tenant();
 
-        DB::transaction(function () use ($t, $productId, $data) {
+        TenantDb::transaction(function () use ($t, $productId, $data) {
             OpeningStock::updateOrCreate(
                 ['company_id' => $t->companyId(), 'account_year_id' => $t->yearId(), 'product_id' => $productId],
                 ['quantity' => $data['quantity'], 'source' => 'manual', 'calculated_at' => null, 'updated_by' => $t->user->id]

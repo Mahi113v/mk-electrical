@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
+use App\Support\TenantDb;
+use App\Support\TenantRules;
 use App\Services\OrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,7 +35,7 @@ class OrdersController extends Controller
             'notes'              => ['nullable', 'string', 'max:2000'],
             'status'             => ['nullable', Rule::in(Order::STATUSES)],
             'items'              => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'exists:products,id'],
+            'items.*.product_id' => ['required', TenantRules::exists(Product::class)],
             'items.*.quantity'   => ['required', 'numeric', 'min:0.01'],
             'items.*.rate'       => $allowRate ? ['nullable', 'numeric', 'min:0'] : ['prohibited'],
         ];

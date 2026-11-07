@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Support\AdminScope;
 use App\Support\Permissions;
+use App\Support\TenantTables;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -186,43 +187,36 @@ class AuthController extends Controller
         return [
             'portal'  => 'admin',
             'scope'   => $user->is_admin ? 'platform' : 'company',
-            'managed' => AdminScope::managedCompanies($user)->map(fn ($c) => ['id' => $c->id, 'code' => $c->code, 'name' => $c->name])->values()->all(),
+            'managed' => AdminScope::managedCompanies($user)->map(fn ($c) => ['id' => $c->id, 'code' => $c->code, 'name' => $c->name, 'logo_url' => $c->logo_url])->values()->all(),
         ];
     }
 
     /** @return array{companies: array, years: array}  companies of a company user, each with his role and permissions */
     private function context(User $user): array
     {
-        $locks = CompanyYear::where('is_locked', true)->get()->groupBy('company_id');
-        $roles = Role::all()->keyBy('id');
+        $companies = $user->companies()->where('status', 'active')->orderBy('name')->get();
+        $locks = CompanyYear::where('is_locked', true)->whereIn('company_id', $companies->pluck('id'))->get()->groupBy('company_id');
+        $roles = Role::whereIn('id', $companies->pluck('pivot.role_id'))->get()->keyBy('id');
 
-        $companies = $user->companies()->where('status', 'active')->orderBy('name')->get()->map(function ($c) use ($roles) {
+        $rows = $companies->map(function ($c) use ($roles, $locks) {
             $role = $roles[$c->pivot->role_id] ?? null;
+            $permissions = $role?->code === 'company_admin' ? Permissions::all() : ($role?->permissions ?? []);
 
-            return [
-                'company' => $c, 'role' => $role ? ['id' => $role->id, 'code' => $role->code, 'name' => $role->name] : null,
-                'permissions' => $role?->code === 'company_admin' ? Permissions::all() : ($role?->permissions ?? []),
-                'is_default' => (bool) $c->pivot->is_default,
+            return $c->profile() + [
+                'allow_negative_stock' => $c->allow_negative_stock,
+                'role'                 => $role ? ['id' => $role->id, 'code' => $role->code, 'name' => $role->name] : null,
+                // a module whose tables are not in the company's own database is switched off
+                'permissions'          => TenantTables::filterPermissions($permissions, $c->database_name ? ($c->database_tables ?? []) : null),
+                'is_default'           => (bool) $c->pivot->is_default,
+                'locked_year_ids'      => ($locks[$c->id] ?? collect())->pluck('account_year_id')->values(),
             ];
         });
+
         $years = $user->years()->orderByDesc('start_date')->get();
 
         return [
-            'companies' => $companies->map(fn ($r) => [
-                'id'                   => $r['company']->id,
-                'code'                 => $r['company']->code,
-                'name'                 => $r['company']->name,
-                'gstin'                => $r['company']->gstin,
-                'phone'                => $r['company']->phone,
-                'email'                => $r['company']->email,
-                'address'              => collect([$r['company']->address, $r['company']->city, $r['company']->state, $r['company']->pincode])->filter()->implode(', '),
-                'allow_negative_stock' => $r['company']->allow_negative_stock,
-                'role'                 => $r['role'],
-                'permissions'          => $r['permissions'],
-                'is_default'           => $r['is_default'],
-                'locked_year_ids'      => ($locks[$r['company']->id] ?? collect())->pluck('account_year_id')->values(),
-            ])->values()->all(),
-            'years' => $years->map(fn ($y) => [
+            'companies' => $rows->values()->all(),
+            'years'     => $years->map(fn ($y) => [
                 'id' => $y->id, 'code' => $y->code, 'label' => $y->label, 'is_current' => $y->is_current,
                 'start_date' => $y->start_date->toDateString(), 'end_date' => $y->end_date->toDateString(),
             ])->values()->all(),

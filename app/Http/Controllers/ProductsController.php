@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Services\ProductCodeGenerator;
 use App\Services\StockService;
+use App\Support\TenantDb;
+use App\Support\TenantRules;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
-/** Products are a shared master (all companies). "stock" is for the selected company + year. */
+/** Each company has its own products. "stock" is for the selected company + year. */
 class ProductsController extends Controller
 {
     public function __construct(private StockService $stock, private ProductCodeGenerator $codes)
@@ -42,7 +44,7 @@ class ProductsController extends Controller
     {
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
-            'product_code' => ['nullable', 'string', 'max:255', 'unique:products,product_code'],
+            'product_code' => ['nullable', 'string', 'max:255', TenantRules::unique(Product::class, 'product_code')],
             'rate'         => ['required', 'numeric', 'min:0'],
         ], ['product_code.unique' => 'Product code already exists']);
 
@@ -62,7 +64,7 @@ class ProductsController extends Controller
 
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
-            'product_code' => ['required', 'string', 'max:255', Rule::unique('products', 'product_code')->ignore($product->id)],
+            'product_code' => ['required', 'string', 'max:255', TenantRules::unique(Product::class, 'product_code')->ignore($product->id)],
             'rate'         => ['required', 'numeric', 'min:0'],
         ], ['product_code.unique' => 'Product code already exists']);
 
@@ -75,8 +77,11 @@ class ProductsController extends Controller
     {
         $product = Product::findOrFail($id);
 
-        $used = $product->orderItems()->exists() || $product->purchaseItems()->exists()
-            || $product->saleItems()->exists() || $product->adjustmentItems()->exists();
+        // only look in the tables this company has
+        $used = (TenantDb::has('order_items') && $product->orderItems()->exists())
+            || (TenantDb::has('purchase_items') && $product->purchaseItems()->exists())
+            || (TenantDb::has('sale_items') && $product->saleItems()->exists())
+            || (TenantDb::has('stock_adjustment_items') && $product->adjustmentItems()->exists());
 
         if ($used) {
             return $this->fail('This product is used in orders / purchases / sales and cannot be deleted.', 422);

@@ -19,6 +19,11 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
 
     /*
+    | Public order form, "I ordered before" search: 'phone' = a full mobile number only (safe), 'name_phone' = name or part of a number too.
+    */
+    'public_customer_search' => env('PUBLIC_CUSTOMER_SEARCH', 'phone'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------

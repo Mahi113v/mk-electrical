@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AccountYearsController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\Admin\CompaniesController;
+use App\Http\Controllers\Admin\DatabasesController;
 use App\Http\Controllers\Admin\RolesController;
 use App\Http\Controllers\Admin\UsersController as AdminUsersController;
 use App\Http\Controllers\AuthController;
@@ -30,6 +31,7 @@ Route::get('/public/account-years', [AuthController::class, 'years']);
 
 // Customer facing order form (no login). Strictly rate limited.   /order-data?company=MK
 Route::get('/public/products', [WebOrderController::class, 'products']);
+Route::get('/public/customers', [WebOrderController::class, 'customers'])->middleware('throttle:30,1');   // "I ordered before"
 Route::post('/public/orders', [WebOrderController::class, 'create'])->middleware('throttle:10,1');
 
 /*
@@ -55,6 +57,8 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/companies', [CompaniesController::class, 'index']);
         Route::put('/companies/{id}', [CompaniesController::class, 'update']);
         Route::get('/companies/{id}/users', [CompaniesController::class, 'users']);
+        Route::post('/companies/{id}/{kind}', [CompaniesController::class, 'upload'])->where('kind', 'logo|image');        // multipart: file
+        Route::delete('/companies/{id}/{kind}', [CompaniesController::class, 'removeFile'])->where('kind', 'logo|image');
 
         Route::get('/users', [AdminUsersController::class, 'index']);
         Route::post('/users', [AdminUsersController::class, 'store']);
@@ -74,6 +78,15 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
             Route::delete('/companies/{id}', [CompaniesController::class, 'destroy']);
             Route::delete('/users/{id}', [AdminUsersController::class, 'destroy']);
             Route::post('/account-years', [AccountYearsController::class, 'store']);
+
+            // a separate database per company + database download
+            Route::get('/database/tables', [DatabasesController::class, 'tables']);
+            Route::get('/database/options', [DatabasesController::class, 'options']);
+            Route::get('/database/download', [DatabasesController::class, 'download']);
+            Route::get('/companies/{id}/database', [DatabasesController::class, 'show']);
+            Route::post('/companies/{id}/database', [DatabasesController::class, 'create']);
+            Route::post('/companies/{id}/database/tables', [DatabasesController::class, 'addTables']);
+            Route::post('/companies/{id}/database/custom-table', [DatabasesController::class, 'customTable']);
         });
     });
 

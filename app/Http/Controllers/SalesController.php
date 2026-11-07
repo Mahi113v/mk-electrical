@@ -9,7 +9,8 @@ use App\Services\DocNumber;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Support\TenantDb;
+use App\Support\TenantRules;
 
 /** Direct sales - not through an order. "reference" = who the goods were given to. */
 class SalesController extends Controller
@@ -22,13 +23,13 @@ class SalesController extends Controller
     {
         return [
             'sale_date'          => ['nullable', 'date'],
-            'customer_id'        => ['nullable', 'integer', 'exists:customers,id'],
+            'customer_id'        => ['nullable', 'integer', TenantRules::exists(Customer::class)],
             'customer_name'      => ['nullable', 'string', 'max:255'],
             'reference'          => ['required', 'string', 'max:255'],
             'payment_mode'       => ['nullable', 'in:cash,upi,card,credit,other'],
             'notes'              => ['nullable', 'string', 'max:2000'],
             'items'              => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.product_id' => ['required', 'integer', TenantRules::exists(Product::class)],
             'items.*.quantity'   => ['required', 'numeric', 'min:0.01'],
             'items.*.rate'       => ['nullable', 'numeric', 'min:0'],
         ];
@@ -67,7 +68,7 @@ class SalesController extends Controller
         $data = $request->validate($this->rules());
         $data['sale_date'] = $this->dateInYear($data['sale_date'] ?? null, 'sale_date');
 
-        return $this->ok(DB::transaction(fn () => $this->persist(null, $data)), 'Sale saved', 201);
+        return $this->ok(TenantDb::transaction(fn () => $this->persist(null, $data)), 'Sale saved', 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -78,7 +79,7 @@ class SalesController extends Controller
         $data = $request->validate($this->rules());
         $data['sale_date'] = $this->dateInYear($data['sale_date'] ?? null, 'sale_date');
 
-        return $this->ok(DB::transaction(fn () => $this->persist($sale, $data)), 'Sale updated');
+        return $this->ok(TenantDb::transaction(fn () => $this->persist($sale, $data)), 'Sale updated');
     }
 
     public function destroy(int $id): JsonResponse

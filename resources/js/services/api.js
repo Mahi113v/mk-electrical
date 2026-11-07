@@ -81,6 +81,8 @@ export const workApi = {
 export const publicApi = {
     products: (company) => api.get('/public/products', { params: { company } }),
     createOrder: (d, company) => api.post('/public/orders', d, { params: { company } }),
+    // "I ordered before": find this company's customer by mobile number
+    searchCustomers: (q, company) => api.get('/public/customers', { params: { q, company } }),
 };
 
 export const purchaseApi = {
@@ -125,6 +127,34 @@ export const adminApi = {
     years: () => api.get('/admin/account-years'),
     createYear: () => api.post('/admin/account-years'),
     lockYear: (yearId, companyId, is_locked) => api.put(`/admin/account-years/${yearId}/companies/${companyId}`, { is_locked }),
+
+    // company logo / image (multipart) - kind = 'logo' | 'image'
+    uploadCompanyFile: (id, kind, file) => {
+        const fd = new FormData();
+        fd.append('file', file);
+        return api.post(`/admin/companies/${id}/${kind}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    },
+    removeCompanyFile: (id, kind) => api.delete(`/admin/companies/${id}/${kind}`),
+
+    // product admin only: a separate database per company
+    dbTables: () => api.get('/admin/database/tables'),
+    companyDb: (id) => api.get(`/admin/companies/${id}/database`),
+    createCompanyDb: (id, d) => api.post(`/admin/companies/${id}/database`, d),
+    addDbTables: (id, tables) => api.post(`/admin/companies/${id}/database/tables`, { tables }),
+    addCustomTable: (id, d) => api.post(`/admin/companies/${id}/database/custom-table`, d),
+    dbOptions: () => api.get('/admin/database/options'),
+    // .sql download needs the token, so fetch as a file and save it
+    downloadDb: async (companyId, database) => {
+        const res = await api.get('/admin/database/download', { params: { company_id: companyId, database }, responseType: 'blob' });
+        const cd = res.headers['content-disposition'] || '';
+        const name = (cd.match(/filename="?([^";]+)"?/) || [])[1] || `${database}.sql`;
+        const url = URL.createObjectURL(res.data);
+        const a = Object.assign(document.createElement('a'), { href: url, download: name });
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    },
 };
 
 export const qty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });

@@ -7,7 +7,9 @@ use App\Services\DocNumber;
 use App\Services\StockService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use App\Models\Product;
+use App\Support\TenantDb;
+use App\Support\TenantRules;
 use Illuminate\Validation\Rule;
 
 /**
@@ -42,14 +44,14 @@ class StockAdjustmentsController extends Controller
             'reason'             => ['required', Rule::in(StockAdjustment::REASONS)],
             'notes'              => ['nullable', 'string', 'max:2000'],
             'items'              => ['required', 'array', 'min:1'],
-            'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
+            'items.*.product_id' => ['required', 'integer', TenantRules::exists(Product::class)],
             'items.*.type'       => ['required', 'in:increase,decrease'],
             'items.*.quantity'   => ['required', 'numeric', 'min:0.01'],
         ]);
         $date = $this->dateInYear($data['adjustment_date'] ?? null, 'adjustment_date');
         $t = $this->tenant();
 
-        $adjustment = DB::transaction(function () use ($data, $date, $t) {
+        $adjustment = TenantDb::transaction(function () use ($data, $date, $t) {
             $adjustment = StockAdjustment::create([
                 'adjustment_no'   => DocNumber::next(StockAdjustment::class, 'adjustment_no', 'ADJ', $t->companyId(), $t->yearId(), $t->year->code),
                 'adjustment_date' => $date,
@@ -81,7 +83,7 @@ class StockAdjustmentsController extends Controller
         }
 
         $t = $this->tenant();
-        DB::transaction(function () use ($adjustment, $t) {
+        TenantDb::transaction(function () use ($adjustment, $t) {
             $ids = $adjustment->items()->pluck('product_id')->all();
             $adjustment->delete();
             $this->stock->assertNotNegative($t->company, $t->yearId(), $ids);

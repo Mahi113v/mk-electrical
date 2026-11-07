@@ -6,7 +6,9 @@ use App\Models\AccountYear;
 use App\Models\Company;
 use App\Models\CompanyYear;
 use App\Models\Role;
+use App\Support\Permissions;
 use App\Support\Tenant;
+use App\Support\TenantTables;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -54,6 +56,8 @@ class TenantContext
         $role = Role::find($membership->pivot->role_id);
         $permissions = $role?->permissions ?? [];
         $all = $role?->code === 'company_admin';
+        // company admin = every permission; either way a module whose tables are not in the company database is switched off
+        $permissions = $all ? Permissions::all() : $permissions;
 
         $locked = (bool) CompanyYear::where('company_id', $companyId)->where('account_year_id', $yearId)->value('is_locked');
 
@@ -61,7 +65,9 @@ class TenantContext
             return $this->deny('This account year is locked for ' . $company->name . ' (view only).', 423);
         }
 
-        app(Tenant::class)->set($user, $company, $year, $permissions, $all, $locked);
+        $tenant = app(Tenant::class);
+        $tenant->set($user, $company, $year, $permissions, false, $locked);
+        $tenant->permissions = TenantTables::filterPermissions($permissions, $tenant->tables);
 
         return $next($request);
     }

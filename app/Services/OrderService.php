@@ -8,7 +8,7 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\StockAdjustment;
-use Illuminate\Support\Facades\DB;
+use App\Support\TenantDb;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -26,7 +26,7 @@ class OrderService
 
     public function save(?Order $order, array $data, Company $company, AccountYear $year, ?int $userId, bool $allowCustomRate, string $source = 'admin'): Order
     {
-        return DB::transaction(function () use ($order, $data, $company, $year, $userId, $allowCustomRate, $source) {
+        return TenantDb::transaction(function () use ($order, $data, $company, $year, $userId, $allowCustomRate, $source) {
             $newStatus = $data['status'] ?? ($order?->status ?? 'pending');
             $oldStatus = $order?->status;
 
@@ -43,7 +43,7 @@ class OrderService
             [$lines, $orderAmount] = $this->buildLines($data['items'], $allowCustomRate);
 
             $serviceCharge = (float) ($data['service_charge'] ?? 0);
-            $customer = $this->syncCustomer($data, $userId);
+            $customer = $this->syncCustomer($data, $userId, $company);
 
             $payload = [
                 'customer_id'     => $customer->id,
@@ -87,7 +87,7 @@ class OrderService
     /** Status only (no item changes) */
     public function changeStatus(Order $order, string $status, Company $company, AccountYear $year, ?int $userId): Order
     {
-        return DB::transaction(function () use ($order, $status, $company, $year, $userId) {
+        return TenantDb::transaction(function () use ($order, $status, $company, $year, $userId) {
             $old = $order->status;
             if ($old === $status) {
                 return $order;
@@ -108,14 +108,19 @@ class OrderService
 
     public function delete(Order $order): void
     {
-        DB::transaction(function () use ($order) {
-            $order->adjustments()->delete();   // automatic cancel adjustments
+        TenantDb::transaction(function () use ($order) {
+            if (TenantDb::has('stock_adjustments')) {
+                $order->adjustments()->get()->each->delete();   // automatic cancel adjustments (their items go with them)
+            }
             $order->delete();                  // items cascade
         });
     }
 
     private function createCancelAdjustment(Order $order, AccountYear $year, ?int $userId): void
     {
+        if (!TenantDb::has('stock_adjustments')) {
+            return;   // this company's database has no stock adjustment table: nothing to put back
+        }
         $order->loadMissing('items');
         $today = now()->toDateString();
 
@@ -140,6 +145,9 @@ class OrderService
 
     private function removeCancelAdjustments(Order $order): void
     {
+        if (!TenantDb::has('stock_adjustments')) {
+            return;
+        }
         $order->adjustments()->where('is_auto', true)->get()->each->delete();
     }
 
@@ -174,9 +182,11 @@ class OrderService
         return [$lines, round($orderAmount, 2)];
     }
 
-    private function syncCustomer(array $data, ?int $userId): Customer
+    /** the customer of THIS company with this phone number (another company's customer is never touched) */
+    private function syncCustomer(array $data, ?int $userId, Company $company): Customer
     {
-        $customer = Customer::firstOrNew(['customer_phone' => $data['customer_phone']]);
+        $customer = Customer::where('company_id', $company->id)->where('customer_phone', $data['customer_phone'])->first()
+            ?? new Customer(['company_id' => $company->id, 'customer_phone' => $data['customer_phone']]);
 
         if (!$customer->exists) {
             $customer->user_id = $userId;

@@ -3,10 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Support\TenantDb;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/** Customers are a shared master (all companies). */
+/** Each company has its own customers. */
 class CustomersController extends Controller
 {
     private function rules(): array
@@ -59,7 +60,9 @@ class CustomersController extends Controller
     public function destroy(int $id): JsonResponse
     {
         $customer = Customer::findOrFail($id);
-        $customer->orders()->update(['customer_id' => null]);   // keep order history
+        if (TenantDb::has('orders')) {
+            $customer->orders()->update(['customer_id' => null]);   // keep order history
+        }
         $customer->delete();
 
         return $this->ok(null, 'Customer deleted successfully');

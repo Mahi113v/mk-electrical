@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\AccountYear;
 use App\Models\Company;
 use App\Models\Product;
+use App\Support\TenantDb;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -40,26 +41,28 @@ class StockService
                 $rows[$pid] ??= $blank;
                 $rows[$pid][$key] += (float) $qty;
             }
+
+            return true;
         };
 
-        if ($withOpening) {
-            $add(DB::table('opening_stocks')->where('company_id', $companyId)->where('account_year_id', $yearId)
+        if ($withOpening && TenantDb::has('opening_stocks')) {
+            $add(TenantDb::table('opening_stocks')->where('company_id', $companyId)->where('account_year_id', $yearId)
                 ->select('product_id', DB::raw('SUM(quantity) as qty')), 'opening');
         }
 
-        $add(DB::table('purchase_items')->join('purchases', 'purchases.id', '=', 'purchase_items.purchase_id')
+        TenantDb::has('purchases') && TenantDb::has('purchase_items') && $add(TenantDb::table('purchase_items')->join('purchases', 'purchases.id', '=', 'purchase_items.purchase_id')
             ->where('purchases.company_id', $companyId)->where('purchases.account_year_id', $yearId)
             ->select('purchase_items.product_id', DB::raw('SUM(purchase_items.quantity) as qty')), 'purchased', 'purchases.purchase_date');
 
-        $add(DB::table('sale_items')->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+        TenantDb::has('sales') && TenantDb::has('sale_items') && $add(TenantDb::table('sale_items')->join('sales', 'sales.id', '=', 'sale_items.sale_id')
             ->where('sales.company_id', $companyId)->where('sales.account_year_id', $yearId)
             ->select('sale_items.product_id', DB::raw('SUM(sale_items.quantity) as qty')), 'sold', 'sales.sale_date');
 
-        $add(DB::table('order_items')->join('orders', 'orders.id', '=', 'order_items.order_id')
+        TenantDb::has('orders') && TenantDb::has('order_items') && $add(TenantDb::table('order_items')->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->where('orders.company_id', $companyId)->where('orders.account_year_id', $yearId)
             ->select('order_items.product_id', DB::raw('SUM(order_items.quantity) as qty')), 'ordered', 'orders.order_date');
 
-        $add(DB::table('stock_adjustment_items')->join('stock_adjustments', 'stock_adjustments.id', '=', 'stock_adjustment_items.stock_adjustment_id')
+        TenantDb::has('stock_adjustments') && TenantDb::has('stock_adjustment_items') && $add(TenantDb::table('stock_adjustment_items')->join('stock_adjustments', 'stock_adjustments.id', '=', 'stock_adjustment_items.stock_adjustment_id')
             ->where('stock_adjustments.company_id', $companyId)->where('stock_adjustments.account_year_id', $yearId)
             ->select('stock_adjustment_items.product_id', DB::raw('SUM(stock_adjustment_items.quantity_change) as qty')), 'adjusted', 'stock_adjustments.adjustment_date');
 
@@ -84,8 +87,10 @@ class StockService
      */
     public function register(int $companyId, int $yearId, string $yearStart, string $from, string $to): array
     {
-        $opening = DB::table('opening_stocks')->where('company_id', $companyId)->where('account_year_id', $yearId)
-            ->groupBy('product_id')->select('product_id', DB::raw('SUM(quantity) as qty'))->pluck('qty', 'product_id');
+        $opening = TenantDb::has('opening_stocks')
+            ? TenantDb::table('opening_stocks')->where('company_id', $companyId)->where('account_year_id', $yearId)
+                ->groupBy('product_id')->select('product_id', DB::raw('SUM(quantity) as qty'))->pluck('qty', 'product_id')
+            : collect();
 
         $beforeEnd = date('Y-m-d', strtotime($from . ' -1 day'));
         $before = $from > $yearStart ? $this->movements($companyId, $yearId, null, $yearStart, $beforeEnd, false) : [];
@@ -147,7 +152,7 @@ class StockService
     public function closingOfYear(Company $company, AccountYear $year, int $depth = 0): array
     {
         $movements = $this->movements($company->id, $year->id);
-        $hasStoredOpening = DB::table('opening_stocks')->where('company_id', $company->id)->where('account_year_id', $year->id)->exists();
+        $hasStoredOpening = TenantDb::has('opening_stocks') && TenantDb::table('opening_stocks')->where('company_id', $company->id)->where('account_year_id', $year->id)->exists();
 
         // no opening stock saved for that year: derive it from the year before (safe guard against endless loops)
         if (!$hasStoredOpening && $depth < 15 && ($previous = $year->previous())) {
