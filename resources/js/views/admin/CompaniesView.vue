@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import Icon from '../../components/Icon.vue';
 import Modal from '../../components/Modal.vue';
 import TablePicker from '../../components/TablePicker.vue';
@@ -27,6 +27,7 @@ const usersOf = ref(null);
 const files = ref({ logo: null, image: null });
 const previews = ref({ logo: null, image: null });
 const removeFlags = ref({ logo: false, image: false });
+const sources = ref({ logo: null, image: null });   // the original file, so "Adjust" can open it again
 
 /* database of a NEW company */
 const newDb = ref({ on: false, name: '', tables: [] });
@@ -51,23 +52,128 @@ const open = (c) => {
     files.value = { logo: null, image: null };
     previews.value = { logo: null, image: null };
     removeFlags.value = { logo: false, image: false };
+    sources.value = { logo: null, image: null };
+    crop.value = null;
     newDb.value = { on: false, name: '', tables: [] };
     dbInfo.value = null;
     if (!c && platform) loadMainTables();
 };
 const close = () => { form.value = null; };
 
+/* ---------------- crop + rotate before upload ----------------
+ * The picture is placed on a fixed frame (logo = square, image = wide banner). Drag to move, zoom, rotate; "Use this picture"
+ * makes the final PNG / JPEG at the right size. Nothing leaves the browser until you press Save. */
+const OUT = {
+    logo: { label: 'logo', w: 512, h: 512, stage: [280, 280], type: 'image/png', ext: 'png' },
+    image: { label: 'image', w: 1200, h: 400, stage: [450, 150], type: 'image/jpeg', ext: 'jpg' },
+};
+const MAX_SOURCE = 10 * 1024 * 1024;   // what you may choose; the cropped result is much smaller
+const MAX_RESULT = 2 * 1024 * 1024;    // what the server accepts
+const crop = ref(null);                // { kind, img, name, quarter, fine, zoom, ox, oy }
+const cvs = ref(null);
+let drag = null;
+
+const theta = (c) => ((c.quarter * 90 + c.fine) * Math.PI) / 180;
+/* smallest scale at which the rotated picture still covers the whole frame */
+const baseScale = (c, W, H) => {
+    const t = theta(c), a = Math.abs(Math.cos(t)), b = Math.abs(Math.sin(t));
+    return Math.max((W * a + H * b) / c.img.naturalWidth, (W * b + H * a) / c.img.naturalHeight);
+};
+/* keep the frame inside the picture (no empty corners) */
+const clampOffset = (c) => {
+    const [W, H] = OUT[c.kind].stage;
+    const t = theta(c), cos = Math.cos(t), sin = Math.sin(t);
+    const s = baseScale(c, W, H) * c.zoom;
+    const px = -c.ox, py = -c.oy;
+    let ix = px * cos + py * sin;
+    let iy = -px * sin + py * cos;
+    const hx = (W * Math.abs(cos) + H * Math.abs(sin)) / 2;
+    const hy = (W * Math.abs(sin) + H * Math.abs(cos)) / 2;
+    const mx = Math.max(0, (c.img.naturalWidth * s) / 2 - hx);
+    const my = Math.max(0, (c.img.naturalHeight * s) / 2 - hy);
+    ix = Math.min(mx, Math.max(-mx, ix));
+    iy = Math.min(my, Math.max(-my, iy));
+    c.ox = -(ix * cos - iy * sin);
+    c.oy = -(ix * sin + iy * cos);
+};
+const paint = (ctx, c, W, H) => {
+    const [sw, sh] = OUT[c.kind].stage;
+    const f = W / sw;
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    if (OUT[c.kind].type === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(W / 2 + c.ox * f, H / 2 + c.oy * f);
+    ctx.rotate(theta(c));
+    const s = baseScale(c, sw, sh) * c.zoom * f;
+    ctx.scale(s, s);
+    ctx.drawImage(c.img, -c.img.naturalWidth / 2, -c.img.naturalHeight / 2);
+    ctx.restore();
+};
+const draw = async () => {
+    await nextTick();
+    const c = crop.value, el = cvs.value;
+    if (c && el) paint(el.getContext('2d'), c, el.width, el.height);
+};
+watch(crop, draw, { deep: true });
+
+const startCrop = (kind, file) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) { toast.error('Choose a PNG, JPG or WebP picture'); return; }
+    if (file.size > MAX_SOURCE) { toast.error('Picture must be 10 MB or smaller'); return; }
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+        URL.revokeObjectURL(url);
+        sources.value[kind] = file;
+        crop.value = { kind, img, name: file.name, quarter: 0, fine: 0, zoom: 1, ox: 0, oy: 0 };
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); toast.error('Could not read this picture'); };
+    img.src = url;
+};
 const pick = (kind, e) => {
     const f = e.target.files?.[0];
-    if (!f) return;
-    if (f.size > 2 * 1024 * 1024) { toast.error('Image must be 2 MB or smaller'); e.target.value = ''; return; }
-    files.value[kind] = f;
-    removeFlags.value[kind] = false;
-    previews.value[kind] = URL.createObjectURL(f);
+    e.target.value = '';   // the same file can be chosen again
+    startCrop(kind, f);
+};
+const adjust = (kind) => startCrop(kind, sources.value[kind]);
+
+const rotate = (dir) => { crop.value.quarter = (crop.value.quarter + dir + 4) % 4; clampOffset(crop.value); };
+const resetCrop = () => Object.assign(crop.value, { quarter: 0, fine: 0, zoom: 1, ox: 0, oy: 0 });
+const cropChanged = () => clampOffset(crop.value);
+const down = (e) => { drag = { x: e.clientX, y: e.clientY }; e.currentTarget.setPointerCapture(e.pointerId); };
+const move = (e) => {
+    if (!drag) return;
+    const el = cvs.value;
+    const ratio = el.width / el.getBoundingClientRect().width;   // the frame may be shown smaller on a phone
+    crop.value.ox += (e.clientX - drag.x) * ratio;
+    crop.value.oy += (e.clientY - drag.y) * ratio;
+    drag = { x: e.clientX, y: e.clientY };
+    clampOffset(crop.value);
+};
+const up = () => { drag = null; };
+const wheel = (e) => { crop.value.zoom = Math.min(3, Math.max(1, crop.value.zoom - e.deltaY * 0.002)); clampOffset(crop.value); };
+const cancelCrop = () => { crop.value = null; };
+const useCrop = () => {
+    const c = crop.value, cfg = OUT[c.kind];
+    const out = document.createElement('canvas');
+    out.width = cfg.w;
+    out.height = cfg.h;
+    paint(out.getContext('2d'), c, cfg.w, cfg.h);
+    out.toBlob((blob) => {
+        if (!blob) return toast.error('Could not make the picture');
+        if (blob.size > MAX_RESULT) return toast.error('The picture is still bigger than 2 MB. Choose a smaller one.');
+        const file = new File([blob], `${c.kind}.${cfg.ext}`, { type: cfg.type });
+        files.value[c.kind] = file;
+        removeFlags.value[c.kind] = false;
+        previews.value[c.kind] = URL.createObjectURL(file);
+        crop.value = null;
+    }, cfg.type, 0.92);
 };
 const dropFile = (kind) => {
     files.value[kind] = null;
     previews.value[kind] = null;
+    sources.value[kind] = null;
     if (form.value[`${kind}_url`]) removeFlags.value[kind] = true;
 };
 const shown = (kind) => previews.value[kind] || (removeFlags.value[kind] ? null : form.value?.[`${kind}_url`]);
@@ -257,23 +363,25 @@ const logoOf = (c) => c.logo_url || DEFAULT_LOGO;
                 <div v-show="tab === 'branding'" class="brand-grid">
                     <div class="brand-box">
                         <b>Company logo</b>
-                        <small>Shown on the menu, login, order page and invoices. Square, up to 2 MB. If empty the MK logo is used.</small>
+                        <small>Shown on the menu, login, order page and invoices. You can crop and rotate it. If empty the MK logo is used.</small>
                         <div class="logo-prev"><img :src="shown('logo') || DEFAULT_LOGO" alt="logo" /></div>
                         <div class="brand-actions">
                             <label class="btn btn-ghost btn-sm" style="cursor: pointer">Choose logo<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="pick('logo', $event)" /></label>
+                            <button v-if="sources.logo && files.logo" type="button" class="btn btn-ghost btn-sm" @click="adjust('logo')">Crop / rotate</button>
                             <button v-if="shown('logo')" type="button" class="btn btn-ghost btn-sm" @click="dropFile('logo')">Remove</button>
                         </div>
                     </div>
                     <div class="brand-box">
                         <b>Company image</b>
-                        <small>A wide photo (shop / banner). Shown on the order page and at the top of the dashboard. Up to 2 MB.</small>
+                        <small>A wide photo (shop / banner). Shown on the order page and at the top of the dashboard. You can crop and rotate it. If empty a default image is shown.</small>
                         <div class="image-prev"><img v-if="shown('image')" :src="shown('image')" alt="image" /><span v-else>No image</span></div>
                         <div class="brand-actions">
                             <label class="btn btn-ghost btn-sm" style="cursor: pointer">Choose image<input type="file" accept="image/png,image/jpeg,image/webp" hidden @change="pick('image', $event)" /></label>
+                            <button v-if="sources.image && files.image" type="button" class="btn btn-ghost btn-sm" @click="adjust('image')">Crop / rotate</button>
                             <button v-if="shown('image')" type="button" class="btn btn-ghost btn-sm" @click="dropFile('image')">Remove</button>
                         </div>
                     </div>
-                    <p class="sub" style="grid-column: 1 / -1">The picture is uploaded when you press Save.</p>
+                    <p class="sub" style="grid-column: 1 / -1">Choose a picture, then move, zoom and rotate it. It is uploaded when you press Save.</p>
                 </div>
 
                 <div v-show="tab === 'payment'">
@@ -360,6 +468,40 @@ const logoOf = (c) => c.logo_url || DEFAULT_LOGO;
             </div>
         </Modal>
 
+        <!-- crop + rotate -->
+        <Teleport to="body">
+            <div v-if="crop" class="cr-overlay" @click.self="cancelCrop">
+                <div class="cr-box" role="dialog" aria-modal="true">
+                    <h4>Adjust the {{ OUT[crop.kind].label }}</h4>
+                    <p class="cr-hint">Drag the picture to move it. Use the sliders to zoom and rotate.</p>
+                    <div class="cr-stage" :class="crop.kind">
+                        <canvas
+                            ref="cvs"
+                            :width="OUT[crop.kind].stage[0]"
+                            :height="OUT[crop.kind].stage[1]"
+                            @pointerdown="down"
+                            @pointermove="move"
+                            @pointerup="up"
+                            @pointercancel="up"
+                            @wheel.prevent="wheel"
+                        />
+                        <span class="cr-grid" aria-hidden="true"></span>
+                    </div>
+                    <div class="cr-row">
+                        <button type="button" class="btn btn-ghost btn-sm" @click="rotate(-1)">⟲ 90°</button>
+                        <button type="button" class="btn btn-ghost btn-sm" @click="rotate(1)">⟳ 90°</button>
+                        <button type="button" class="btn btn-ghost btn-sm" @click="resetCrop">Reset</button>
+                    </div>
+                    <label class="cr-slider">Zoom <input v-model.number="crop.zoom" type="range" min="1" max="3" step="0.01" @input="cropChanged" /></label>
+                    <label class="cr-slider">Rotate <input v-model.number="crop.fine" type="range" min="-45" max="45" step="1" @input="cropChanged" /><b>{{ crop.fine }}°</b></label>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-ghost" @click="cancelCrop">Cancel</button>
+                        <button type="button" class="btn btn-primary" @click="useCrop">Use this picture</button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
         <Modal v-if="usersOf" :title="`Users of ${usersOf.company.name}`" @close="usersOf = null">
             <p v-if="!usersOf.users.length" class="empty">No user is assigned to this company.</p>
             <div v-for="u in usersOf.users" :key="u.id" style="display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border)">
@@ -387,5 +529,19 @@ const logoOf = (c) => c.logo_url || DEFAULT_LOGO;
 .brand-actions { display: flex; gap: 8px; }
 .h4 { margin: 18px 0 8px; font-size: 15px; }
 .col-row { display: grid; grid-template-columns: 1fr 150px auto; gap: 8px; margin-bottom: 8px; max-width: 520px; }
+
+/* crop + rotate */
+.cr-overlay { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 16px; background: rgba(8, 6, 24, .72); backdrop-filter: blur(4px); }
+.cr-box { width: 100%; max-width: 520px; max-height: 94vh; overflow-y: auto; padding: 20px; border-radius: 20px; background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .6); }
+.cr-box h4 { margin: 0 0 4px; font-size: 18px; }
+.cr-hint { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.cr-stage { position: relative; margin: 0 auto 12px; width: fit-content; max-width: 100%; border-radius: 12px; overflow: hidden; border: 2px solid var(--brand); background: repeating-conic-gradient(#d1d5db 0% 25%, #f3f4f6 0% 50%) 50% / 16px 16px; touch-action: none; }
+.cr-stage canvas { display: block; max-width: 100%; height: auto; cursor: grab; }
+.cr-stage canvas:active { cursor: grabbing; }
+.cr-grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(255, 255, 255, .45) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, .45) 1px, transparent 1px); background-size: 33.333% 33.333%; }
+.cr-row { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+.cr-slider { display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.cr-slider b { min-width: 38px; text-align: right; color: var(--text); }
+.cr-slider input[type='range'] { width: 100%; accent-color: var(--brand); }
 @media (max-width: 640px) { .brand-grid { grid-template-columns: 1fr; } }
 </style>

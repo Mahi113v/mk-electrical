@@ -14,6 +14,7 @@ const route = useRoute();
 const router = useRouter();
 const open = ref(false);
 const menu = ref(false);
+const isLogout = ref(false);
 let previousTheme = 'light';
 
 onMounted(async () => {
@@ -42,10 +43,21 @@ const items = computed(() => (isPlatformAdmin()
 
 const roleLabel = computed(() => (isPlatformAdmin() ? 'Product Admin' : `Company Admin · ${session.managed.map((c) => c.code).join(', ')}`));
 
+// const logout = async () => {
+//     try { await authApi.logout(); } catch { /* ignore */ }
+//     clearSession();
+//     router.replace('/admin');
+// };
 const logout = async () => {
-    try { await authApi.logout(); } catch { /* ignore */ }
+    if (isLogout.value) return;          // double click block
+    menu.value = false;
+    open.value = false;
+    isLogout.value = true;
+    try { await authApi.logout(); } catch { /* token may already be invalid */ }
+    await new Promise((r) => setTimeout(r, 600));   // message paaka konjam neram (optional)
     clearSession();
     router.replace('/admin');
+    isLogout.value = false;
 };
 </script>
 
@@ -90,5 +102,35 @@ const logout = async () => {
             </header>
             <main class="mk-page"><router-view /></main>
         </div>
+
+        <!-- logging out modal -->
+        <div v-if="isLogout" class="lo-modal" role="alertdialog" aria-modal="true" aria-live="polite">
+            <div class="lo-box">
+                <span class="lo-spin" aria-hidden="true"></span>
+                <h3>Logging out</h3>
+                <p>Please wait...</p>
+            </div>
+        </div>
     </div>
 </template>
+
+<style scoped>
+.lo-modal {
+    position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
+    background: rgba(8, 6, 24, .65); backdrop-filter: blur(4px);
+}
+.lo-box {
+    width: 100%; max-width: 300px; padding: 28px; text-align: center; border-radius: 20px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .6);
+}
+.lo-box h3 { margin: 14px 0 4px; }
+.lo-box p { margin: 0; color: var(--text-2); font-size: 14px; }
+.lo-spin {
+    display: block; width: 36px; height: 36px; margin: 0 auto; border-radius: 50%;
+    border: 3.5px solid var(--border); border-top-color: var(--brand); animation: lo-rot .7s linear infinite;
+}
+@keyframes lo-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lo-spin { animation: none; } }
+</style>
+

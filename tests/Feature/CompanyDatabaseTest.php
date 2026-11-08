@@ -165,11 +165,18 @@ class CompanyDatabaseTest extends TestCase
         $this->postJson('/api/public/orders?company=BBB', ['customer_name' => 'X', 'customer_phone' => '9111111111', 'items' => [['product_id' => $pa->id, 'quantity' => 1]]])->assertStatus(422);
         $this->postJson('/api/public/orders?company=AAA', ['customer_name' => 'X', 'customer_phone' => '9111111111', 'items' => [['product_id' => $pa->id, 'quantity' => 1]]])->assertStatus(201);
 
-        // "I ordered before": a full mobile number of THIS company's customers only
+        // "I ordered before", strict mode: a full mobile number of THIS company's customers only
+        config(['app.public_customer_search' => 'phone']);
         $this->getJson('/api/public/customers?company=AAA&q=9111111111')->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.customer_name', 'X');
         $this->getJson('/api/public/customers?company=BBB&q=9111111111')->assertOk()->assertJsonCount(0, 'data');
         $this->getJson('/api/public/customers?company=AAA&q=X')->assertStatus(422);
         $this->getJson('/api/public/customers?company=AAA&q=91111')->assertOk()->assertJsonCount(0, 'data');   // a part of a number finds nothing
+
+        // default mode: name or part of the mobile number, still only this company's customers
+        config(['app.public_customer_search' => 'name_phone']);
+        $this->getJson('/api/public/customers?company=AAA&q=91111')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson('/api/public/customers?company=AAA&q=Xyz')->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/public/customers?company=BBB&q=91111')->assertOk()->assertJsonCount(0, 'data');
     }
 
     public function test_logo_image_and_payment_details_of_a_company(): void

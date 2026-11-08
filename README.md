@@ -1,4 +1,4 @@
-# MK Electrical – multi company business suite
+# MK Software – multi company business suite
 
 Laravel 10 API (`/api`) + Vue 3 frontend.
 

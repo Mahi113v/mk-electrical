@@ -114,7 +114,7 @@ const skipPrint = () => { askPrint.value = false; };
         <div class="po-card">
             <!-- header: logo + company name -->
             <div class="po-head">
-                <img :src="logoSrc" :alt="company?.name || 'MK Electrical'" @error="onLogoError" />
+                <img :src="logoSrc" :alt="company?.name || 'MK Software'" @error="onLogoError" />
                 <h1>{{ company?.name || 'Place an order' }}</h1>
                 <p v-if="company">Choose what you need and we will call you to confirm.</p>
                 <p v-else>Enter your company code to start your order.</p>

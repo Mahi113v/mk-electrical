@@ -131,7 +131,7 @@ const bars = [38, 62, 48, 80, 58, 92];
                     </div>
                 </div>
 
-                <small class="lg-copy">© {{ new Date().getFullYear() }} MK Electrical, Sivakasi, Tamil Nadu</small>
+                <small class="lg-copy">© {{ new Date().getFullYear() }} MK Software, Sivakasi, Tamil Nadu</small>
             </aside>
 
             <!-- ============ right: form ============ -->
@@ -139,7 +139,7 @@ const bars = [38, 62, 48, 80, 58, 92];
                 <form v-if="!pick" class="lg-card" novalidate @submit.prevent="submit">
                     <div class="lg-mobile-brand">
                         <img :src="LOGO" alt="" @error="$event.target.style.display = 'none'" />
-                        <span>MK Electrical</span>
+                        <span>MK Software</span>
                     </div>
 
                     <h1>Welcome back</h1>

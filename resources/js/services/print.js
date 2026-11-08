@@ -48,7 +48,7 @@ const header = () => {
     const c = currentCompany();
     const line = [c?.address, c?.phone ? `Ph: ${c.phone}` : '', c?.gstin ? `GSTIN: ${c.gstin}` : ''].filter(Boolean).join('  ·  ');
 
-    return `<div class="head"><h1>${esc(c?.name || 'MK Electrical')}</h1>${line ? `<div>${esc(line)}</div>` : ''}</div>`;
+    return `<div class="head"><h1>${esc(c?.name || 'MK Software')}</h1>${line ? `<div>${esc(line)}</div>` : ''}</div>`;
 };
 
 const footer = () =>

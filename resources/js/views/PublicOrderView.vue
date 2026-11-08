@@ -5,7 +5,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { errorMessage, inr, publicApi } from '../services/api';
 import { toast } from '../services/toast';
 
-const DEFAULT_LOGO = '/images/mk-logo.png';
+const DEFAULT_LOGO = '/images/mk-logo.png' || '/images/mk-logo1.png';
+const DEFAULT_BANNER = '/images/MK Software Banner.png' || '/images/default-company.svg';   // shown when the company has no image
 const MAX_RESULTS = 30;          // product search dropdown limit
 const route = useRoute();
 const router = useRouter();
@@ -39,6 +40,7 @@ const hasBank = computed(() => !!company.value?.account_number);
 const askPrint = ref(false);
 
 /* ---------- customer: search first, or add new ---------- */
+const sameWa = ref(false);           // WhatsApp number = phone number
 const custMode = ref('search');      // 'search' | 'form'
 const custPicked = ref(null);        // the existing customer chosen from search (for the badge)
 const custQuery = ref('');
@@ -48,15 +50,28 @@ const custSearched = ref(false);     // true once a search finished (to show "no
 let custTimer = null;
 let custSeq = 0;
 
+/* safe mode: the server only finds a FULL 10-digit mobile number (set PUBLIC_CUSTOMER_SEARCH=phone in .env) */
+// const searchable = (q) => q.replace(/\D+/g, '').length >= 10;
+
+/* phone: min 4 digits (any part of the number) | name: min 3 letters */
+const isPhoneQuery = (q) => /^[\d\s+\-()]+$/.test(q.trim());
+const searchable = (q) => {
+    const t = q.trim();
+    if (!t) return false;
+    if (isPhoneQuery(t)) return t.replace(/\D+/g, '').length >= 4;
+    return t.length >= 3;
+};
+
 const runCustSearch = async () => {
     const q = custQuery.value.trim();
-    // the server only finds a FULL mobile number (so nobody can browse other people's details)
-    if (q.replace(/\D+/g, '').length < 10) { custResults.value = []; custSearched.value = false; custLoading.value = false; return; }
+    if (!searchable(q)) { custResults.value = []; custSearched.value = false; custLoading.value = false; return; }
     const seq = ++custSeq;
     custLoading.value = true;
     try {
-        const { data } = await publicApi.searchCustomers(q, companyCode.value);
-        if (seq !== custSeq) return;             // a newer search is running, ignore this one
+        // phone → send digits only, name → send text as typed
+        const term = isPhoneQuery(q) ? q.replace(/\D+/g, '') : q;
+        const { data } = await publicApi.searchCustomers(term, companyCode.value);
+        if (seq !== custSeq) return;
         custResults.value = data.data || [];
         custSearched.value = true;
     } catch {
@@ -74,6 +89,10 @@ watch(custQuery, () => {
     custTimer = setTimeout(runCustSearch, 350);   // wait until the customer stops typing
 });
 
+/* while "same as phone" is ticked the WhatsApp number follows the phone number (and is saved with it) */
+watch(() => form.customer_phone, (v) => { if (sameWa.value) form.whatsapp = v; });
+watch(sameWa, (on) => { if (on) form.whatsapp = form.customer_phone; });
+
 const pickCustomer = (c) => {
     Object.assign(form, {
         customer_name: c.customer_name || '',
@@ -84,6 +103,7 @@ const pickCustomer = (c) => {
         city: c.city || '',
         address: c.address || '',
     });
+    sameWa.value = !!c.customer_phone && c.whatsapp === c.customer_phone;
     custPicked.value = c;
     custMode.value = 'form';
 };
@@ -96,11 +116,13 @@ const newCustomer = () => {
     const digits = custQuery.value.replace(/\D+/g, '');
     if (digits.length >= 6) form.customer_phone = digits.slice(0, 15);
     else if (custQuery.value.trim()) form.customer_name = custQuery.value.trim();
+    sameWa.value = false;
     custPicked.value = null;
     custMode.value = 'form';
 };
 
 const backToSearch = () => {
+    sameWa.value = false;
     custMode.value = 'search';
     custPicked.value = null;
     custQuery.value = '';
@@ -115,6 +137,12 @@ const active = ref(0);
 const listEl = ref(null);
 
 const logoSrc = computed(() => company.value?.logo_url || DEFAULT_LOGO);
+/* company image; if it is missing or broken the default image is shown */
+const bannerSrc = computed(() => company.value?.image_url || DEFAULT_BANNER);
+const onBannerError = (e) => {
+    if (!e.target.src.endsWith(DEFAULT_BANNER)) e.target.src = DEFAULT_BANNER;
+    else e.target.style.display = 'none';
+};
 const onLogoError = (e) => {
     if (!e.target.src.endsWith(DEFAULT_LOGO)) e.target.src = DEFAULT_LOGO;
     else e.target.style.display = 'none';
@@ -247,11 +275,11 @@ const skipPrint = () => { askPrint.value = false; };
     <div class="po">
         <div class="po-card">
             <!-- company image (banner) -->
-            <div v-if="company?.image_url" class="po-banner" :style="{ backgroundImage: `url(${company.image_url})` }" role="img" :aria-label="company.name"></div>
+            <img class="po-banner" :src="bannerSrc" :alt="company?.name || ''" @error="onBannerError" />
 
             <!-- header: logo + company name -->
             <div class="po-head">
-                <img :src="logoSrc" :alt="company?.name || 'MK Electrical'" @error="onLogoError" />
+                <img :src="logoSrc" :alt="company?.name || 'MK Software'" @error="onLogoError" />
                 <h1>{{ company?.name || 'Place an order' }}</h1>
                 <p v-if="company">Search and add what you need, we will call you to confirm.</p>
                 <p v-else>Enter your company code to start your order.</p>
@@ -303,13 +331,13 @@ const skipPrint = () => { askPrint.value = false; };
 
                     <!-- A) search existing customer -->
                     <template v-if="custMode === 'search'">
-                        <p class="sub">Ordered before? Type your mobile number and we fill your details. New here? Tap “New customer”.</p>
+                        <p class="sub">Ordered before? Type your name or mobile number and we fill your details. New here? Tap “New customer”.</p>
                         <div class="cs">
                             <input
                                 v-model="custQuery"
                                 class="input cs-input"
                                 type="search"
-                                placeholder="Your 10-digit mobile number" inputmode="tel"
+                                placeholder="Your name or phone number"
                                 autocomplete="off"
                                 enterkeyhint="search"
                                 @keydown.enter.prevent="runCustSearch"
@@ -317,7 +345,11 @@ const skipPrint = () => { askPrint.value = false; };
                             <span v-if="custLoading" class="cs-spin" aria-hidden="true"></span>
                         </div>
 
-                        <p v-if="custQuery.trim().length > 0 && custQuery.replace(/\D+/g, '').length < 10" class="cs-hint">Type your full 10-digit mobile number</p>
+                        <p v-if="custQuery.trim().length > 0 && !searchable(custQuery.trim())" class="cs-hint">
+                            {{ isPhoneQuery(custQuery) ? 'Type at least 4 digits of your mobile number' : 'Type at least 3 letters of your name' }}
+                        </p>
+
+                        <!-- <p v-if="custQuery.trim().length > 0 && !searchable(custQuery.trim())" class="cs-hint">Type your full 10-digit mobile number</p> -->
 
                         <div v-if="custResults.length" class="cs-list">
                             <button v-for="c in custResults" :key="c.id" type="button" class="cs-item" @click="pickCustomer(c)">
@@ -346,7 +378,11 @@ const skipPrint = () => { askPrint.value = false; };
                         <div class="form-grid">
                             <div class="field"><label>Name *</label><input v-model="form.customer_name" class="input" required /></div>
                             <div class="field"><label>Phone *</label><input v-model="form.customer_phone" class="input" maxlength="15" required inputmode="tel" /></div>
-                            <div class="field"><label>WhatsApp</label><input v-model="form.whatsapp" class="input" maxlength="15" inputmode="tel" /></div>
+                            <div class="field">
+                                <label>WhatsApp</label>
+                                <input v-model="form.whatsapp" class="input" maxlength="15" inputmode="tel" :readonly="sameWa" :class="{ 'is-same': sameWa }" />
+                                <label class="wa-same"><input v-model="sameWa" type="checkbox" :disabled="!form.customer_phone" /> Same as phone number</label>
+                            </div>
                             <div class="field"><label>Alternate phone</label><input v-model="form.alternate_phone" class="input" maxlength="15" inputmode="tel" /></div>
                             <div class="field"><label>Area</label><input v-model="form.area" class="input" /></div>
                             <div class="field"><label>City</label><input v-model="form.city" class="input" /></div>
@@ -494,7 +530,7 @@ const skipPrint = () => { askPrint.value = false; };
     width: 100%; max-width: 720px; padding: 28px; border-radius: 26px; color: var(--text);
     background: var(--surface); border: 1px solid var(--border); box-shadow: 0 40px 80px -30px rgba(0, 0, 0, .7);
 }
-.po-banner { height: 150px; margin: -28px -28px 18px; border-radius: 26px 26px 0 0; background-size: cover; background-position: center; }
+.po-banner { display: block; width: calc(100% + 56px); height: 150px; margin: -28px -28px 18px; border-radius: 26px 26px 0 0; object-fit: cover; background: #1e1b4b; }
 .po-pay { display: grid; gap: 8px; justify-items: center; margin: 18px auto 4px; padding: 16px; max-width: 360px; border-radius: 16px; background: var(--bg); border: 1px solid var(--border); font-size: 14px; }
 .po-qr { width: 170px; height: 170px; border-radius: 12px; background: #fff; padding: 6px; }
 .po-upi { text-decoration: none; }
@@ -542,6 +578,8 @@ const skipPrint = () => { askPrint.value = false; };
 .cs-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
 .cs-badge { padding: 4px 12px; border-radius: 99px; font-size: 12.5px; font-weight: 700; color: #15803d; background: #dcfce7; }
 .cs-badge.new { color: var(--brand); background: var(--brand-soft); }
+.wa-same { display: flex; align-items: center; gap: 7px; margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.is-same { opacity: .75; }
 .cs-warn { margin: 0 0 10px; text-align: center; font-size: 13px; color: var(--text-2); }
 
 /* product search */
@@ -588,7 +626,7 @@ const skipPrint = () => { askPrint.value = false; };
 .print-area { display: none; }
 
 @media (max-width: 520px) {
-    .po-banner { margin: -18px -18px 14px; height: 120px; border-radius: 22px 22px 0 0; }
+    .po-banner { width: calc(100% + 36px); margin: -18px -18px 14px; height: 120px; border-radius: 22px 22px 0 0; }
     .po { padding: 20px 10px; }
     .po-card { padding: 18px; border-radius: 22px; }
     .ps-added { display: none; }

@@ -74,9 +74,9 @@ const companies = computed(() => session.companies);
 
         <form v-if="!pick" class="lg-card" novalidate @submit.prevent="submit">
             <div class="lg-logo">
-                <img :src="LOGO" alt="MK Electrical" @error="$event.target.style.display = 'none'" />
+                <img :src="LOGO" alt="MK Software" @error="$event.target.style.display = 'none'" />
             </div>
-            <h1>MK Electrical</h1>
+            <h1>MK Software</h1>
             <p class="lg-lead">Sign in and choose the account year you want to work in.</p>
 
             <div v-if="error" class="lg-alert" role="alert">
@@ -124,7 +124,7 @@ const companies = computed(() => session.companies);
 
         <form v-else class="lg-card" @submit.prevent="chooseCompany">
             <div class="lg-logo">
-                <img :src="LOGO" alt="MK Electrical" @error="$event.target.style.display = 'none'" />
+                <img :src="LOGO" alt="MK Software" @error="$event.target.style.display = 'none'" />
             </div>
             <h1>Choose company</h1>
             <p class="lg-lead">You can open more than one company. You can switch later from the top bar.</p>
@@ -288,7 +288,7 @@ import { applyContext, clearSession, homePath, session } from '../services/auth'
 
 /* ---- edit these ---- */
 const LOGO = '/images/mk-logo.png';
-const BRAND = 'MK Electrical';
+const BRAND = 'MK Software';
 const TAGLINE = 'Business Solutions';
 const LOCATION = 'Sivakasi, Tamil Nadu, India';
 const SUPPORT_EMAIL = 'spark_software@yahoo.com';

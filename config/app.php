@@ -19,9 +19,9 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
 
     /*
-    | Public order form, "I ordered before" search: 'phone' = a full mobile number only (safe), 'name_phone' = name or part of a number too.
+    | Public order form, "I ordered before" search: 'name_phone' = name or part of a number (default), 'phone' = a full 10-digit mobile number only (safer).
     */
-    'public_customer_search' => env('PUBLIC_CUSTOMER_SEARCH', 'phone'),
+    'public_customer_search' => env('PUBLIC_CUSTOMER_SEARCH', 'name_phone'),
 
     /*
     |--------------------------------------------------------------------------

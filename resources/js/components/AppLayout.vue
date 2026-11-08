@@ -12,6 +12,7 @@ const router = useRouter();
 
 const open = ref(false);
 const menu = ref(false);
+const isLogout = ref(false);
 const theme = ref(localStorage.getItem('theme') || 'light');
 
 watch(theme, (t) => {
@@ -39,7 +40,7 @@ const masterItems = [
 
 const visible = computed(() => items.filter((i) => can(i.perm)));
 const masterVisible = computed(() => masterItems.filter((i) => can(i.perm)));
-const title = computed(() => route.meta.title || 'MK Electrical');
+const title = computed(() => route.meta.title || 'MK Software');
 const initials = computed(() => (session.user?.name || 'U').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase());
 const company = computed(() => currentCompany());
 
@@ -58,9 +59,15 @@ onMounted(async () => {
 });
 
 const logout = async () => {
+    if (isLogout.value) return;          // double click block
+    menu.value = false;
+    open.value = false;
+    isLogout.value = true;
     try { await authApi.logout(); } catch { /* token may already be invalid */ }
+    await new Promise((r) => setTimeout(r, 600));   // message paaka konjam neram (optional)
     clearSession();
     router.replace('/login');
+    isLogout.value = false;
 };
 </script>
 
@@ -72,7 +79,7 @@ const logout = async () => {
             <div class="mk-brand">
                 <img :key="company?.id" class="mk-brand-logo" :src="company?.logo_url || DEFAULT_LOGO" :alt="company?.name || 'MK'" @error="logoFallback" />
                 <div>
-                    <div class="mk-brand-name">{{ (company?.name || 'MK Electrical').toUpperCase().slice(0, 18) }}</div>
+                    <div class="mk-brand-name">{{ (company?.name || 'MK Software').toUpperCase().slice(0, 18) }}</div>
                     <div class="mk-brand-sub">{{ company?.code }} · BUSINESS SUITE</div>
                 </div>
             </div>
@@ -128,5 +135,35 @@ const logout = async () => {
                 <router-view :key="viewKey" />
             </main>
         </div>
+
+        <!-- logging out modal -->
+        <div v-if="isLogout" class="lo-modal" role="alertdialog" aria-modal="true" aria-live="polite">
+            <div class="lo-box">
+                <span class="lo-spin" aria-hidden="true"></span>
+                <h3>Logging out</h3>
+                <p>Please wait...</p>
+            </div>
+        </div>
     </div>
 </template>
+
+<style scoped>
+.lo-modal {
+    position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px;
+    background: rgba(8, 6, 24, .65); backdrop-filter: blur(4px);
+}
+.lo-box {
+    width: 100%; max-width: 300px; padding: 28px; text-align: center; border-radius: 20px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .6);
+}
+.lo-box h3 { margin: 14px 0 4px; }
+.lo-box p { margin: 0; color: var(--text-2); font-size: 14px; }
+.lo-spin {
+    display: block; width: 36px; height: 36px; margin: 0 auto; border-radius: 50%;
+    border: 3.5px solid var(--border); border-top-color: var(--brand); animation: lo-rot .7s linear infinite;
+}
+@keyframes lo-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .lo-spin { animation: none; } }
+</style>
+
